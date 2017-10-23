@@ -29,6 +29,7 @@ AC_CONFIG_FILES([Makefile
     src/util/Makefile
     src/ssim/Makefile
     src/notifier/Makefile
+    src/atsc/Makefile
     src/forwarder/Makefile
     src/encoder/Makefile
     src/mp4_parser/Makefile

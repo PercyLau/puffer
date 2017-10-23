@@ -1,1 +1,1 @@
-SUBDIRS = util ssim notifier forwarder encoder mp4_parser tests
+SUBDIRS = util ssim notifier atsc forwarder encoder mp4_parser tests
