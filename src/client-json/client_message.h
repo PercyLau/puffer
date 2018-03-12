@@ -60,7 +60,7 @@ protected:
 };
 
 /* Client message format: 
- *   "<message_type> <json string>" 
+ *   "<message_type> <json_string>" 
  */
 
 /* Sent by the client on WS connect to request a channel */

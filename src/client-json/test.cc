@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <iostream>
+#include <arpa/inet.h>
 
 #include "client_message.h"
 #include "json.hpp"
@@ -11,7 +12,14 @@ using namespace std;
 using json = nlohmann::json;
 
 void print_msg(vector<byte> msg) {
-  for (int i = sizeof(uint32_t); i < msg.size(); i++) {
+  uint16_t msg_len;
+  memcpy(&msg_len, &msg[0], sizeof(uint16_t));
+  msg_len = ntohs(msg_len);
+  if (msg_len != msg.size() - sizeof(uint16_t)) {
+    cout << "Message has incorrect length: " << msg_len << endl;
+    abort();
+  }
+  for (int i = sizeof(uint16_t); i < msg.size(); i++) {
     cout << static_cast<char>(msg[i]);
   }
   cout << endl;
@@ -46,6 +54,35 @@ int main(int argc, char * argv[]) {
     {"playerReadyState", 0}
   };
   parse_client_info_msg(client_info.dump());
+
+  /* Test some examples that should fail */
+  try { /* Empty object */
+    parse_client_init_msg("{}");
+    abort();
+  } catch (const ParseExeception & e) {
+    cout << "Ok: " << e.what() << endl;
+  }
+
+  try { /* [] instead of {} */
+    parse_client_init_msg("[]");
+    abort();
+  } catch (const ParseExeception & e) {
+    cout << "Ok: " << e.what() << endl;
+  }
+
+  try { /* Malformed JSON */
+    parse_client_init_msg("{\"channel\":\"pbs\",\"playerWidth\":1280,\"playerHeight\":720");
+    abort();
+  } catch (const ParseExeception & e) {
+    cout << "Ok: " << e.what() << endl;
+  }
+
+  try {
+    parse_client_info_msg("{}");
+    abort();
+  } catch (const ParseExeception & e) {
+    cout << "Ok: " << e.what() << endl;
+  }
 
   return 0;
 }

@@ -1,6 +1,8 @@
 #include "client_message.h"
 
 #include <algorithm>
+#include <arpa/inet.h>
+#include <iostream>
 
 #include "json.hpp"
 
@@ -15,7 +17,7 @@ ClientInit parse_client_init_msg(const string & data)
     ret.channel = obj["channel"];
     ret.player_width = obj["playerWidth"];
     ret.player_height = obj["playerHeight"];
-  } catch (exception & e) {
+  } catch (const exception & e) {
     throw ParseExeception(e.what());
   }
   return ret;
@@ -53,9 +55,9 @@ ClientInfo parse_client_info_msg(const string & data)
     }
     ret.player_ready_state = static_cast<PlayerReadyState>(player_ready_state);
 
-  } catch (ParseExeception & e) {
+  } catch (const ParseExeception & e) {
     throw e;
-  } catch (exception & e) {
+  } catch (const exception & e) {
     throw ParseExeception(e.what());
   }
   return ret;
@@ -65,18 +67,16 @@ ClientInfo parse_client_info_msg(const string & data)
 static inline vector<byte> pack_json(const json & msg)
 {
   string msg_str = msg.dump();
-  uint32_t msg_len = msg_str.length();
-  vector<byte> ret(sizeof(uint32_t) + msg_len);
+  uint16_t msg_len = msg_str.length();
+  vector<byte> ret(sizeof(uint16_t) + msg_len);
 
   /* Network endian */
-  ret[0] = static_cast<byte>((msg_len >> 24) & 0xFF);
-  ret[1] = static_cast<byte>((msg_len >> 16) & 0xFF);
-  ret[2] = static_cast<byte>((msg_len >> 8) & 0xFF);
-  ret[3] = static_cast<byte>(msg_len & 0xFF);
+  uint16_t msg_len_no = htons(msg_len);
+  memcpy(&ret[0], &msg_len_no, sizeof(uint16_t));
 
   byte *begin = reinterpret_cast<byte *>(&msg_str[0]);
   byte *end = reinterpret_cast<byte *>(&msg_str[0] + msg_len);
-  copy(begin, end, ret.begin() + sizeof(uint32_t));
+  copy(begin, end, ret.begin() + sizeof(uint16_t));
   return ret;
 }
 
