@@ -3,7 +3,7 @@
 #include <vector>
 #include <string>
 #include <iostream>
-#include <arpa/inet.h>
+#include <endian.h>
 
 #include "client_message.h"
 #include "json.hpp"
@@ -11,16 +11,16 @@
 using namespace std;
 using json = nlohmann::json;
 
-void print_msg(vector<byte> msg) {
+void print_msg(string msg) {
   uint16_t msg_len;
   memcpy(&msg_len, &msg[0], sizeof(uint16_t));
-  msg_len = ntohs(msg_len);
+  msg_len = be16toh(msg_len);
   if (msg_len != msg.size() - sizeof(uint16_t)) {
     cout << "Message has incorrect length: " << msg_len << endl;
     abort();
   }
   for (int i = sizeof(uint16_t); i < msg.size(); i++) {
-    cout << static_cast<char>(msg[i]);
+    cout << msg[i];
   }
   cout << endl;
 }
@@ -38,7 +38,7 @@ int main(int argc, char * argv[]) {
   /* Test client message parsing */
   auto msg = unpack_client_msg("client-info {}");
   assert(msg.first == ClientMsg::Info);
-  
+
   json client_init = {
     {"channel", "pbs"},
     {"playerWidth", 1920},

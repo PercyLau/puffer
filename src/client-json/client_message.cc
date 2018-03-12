@@ -1,8 +1,8 @@
 #include "client_message.h"
 
 #include <algorithm>
-#include <arpa/inet.h>
 #include <iostream>
+#include <endian.h>
 
 #include "json.hpp"
 
@@ -81,23 +81,21 @@ ClientInfo parse_client_info_msg(const string & data)
 }
 
 
-static inline vector<byte> pack_json(const json & msg)
+static inline string pack_json(const json & msg)
 {
   string msg_str = msg.dump();
   uint16_t msg_len = msg_str.length();
-  vector<byte> ret(sizeof(uint16_t) + msg_len);
+  string ret(sizeof(uint16_t) + msg_len, 0);
 
   /* Network endian */
-  uint16_t msg_len_no = htons(msg_len);
+  uint16_t msg_len_no = htobe16(msg_len);
   memcpy(&ret[0], &msg_len_no, sizeof(uint16_t));
 
-  byte *begin = reinterpret_cast<byte *>(&msg_str[0]);
-  byte *end = reinterpret_cast<byte *>(&msg_str[0] + msg_len);
-  copy(begin, end, ret.begin() + sizeof(uint16_t));
+  copy(msg_str.begin(), msg_str.end(), ret.begin() + sizeof(uint16_t));
   return ret;
 }
 
-vector<byte> make_server_hello_msg(const vector<string> & channels)
+string make_server_hello_msg(const vector<string> & channels)
 {
   json msg = {
     {"type", "server-hello"},
@@ -106,7 +104,7 @@ vector<byte> make_server_hello_msg(const vector<string> & channels)
   return pack_json(msg);
 }
 
-vector<byte> make_server_init_msg(const string & channel, 
+string make_server_init_msg(const string & channel, 
                                   const string & video_codec,
                                   const string & audio_codec,
                                   const unsigned int & timescale,
@@ -123,7 +121,7 @@ vector<byte> make_server_init_msg(const string & channel,
   return pack_json(msg);
 }
 
-static inline vector<byte> make_media_chunk_msg(
+static inline string make_media_chunk_msg(
   const string & media_type,                                    
   const string & quality,
   const unsigned int & timestamp,
@@ -142,7 +140,7 @@ static inline vector<byte> make_media_chunk_msg(
   return pack_json(msg);
 }
 
-vector<byte> make_audio_msg(
+string make_audio_msg(
   const string & quality,
   const unsigned int & timestamp,
   const unsigned int & duration,
@@ -153,7 +151,7 @@ vector<byte> make_audio_msg(
                               byte_offset, total_byte_length);
 }
 
-vector<byte> make_video_msg(
+string make_video_msg(
   const string & quality,
   const unsigned int & timestamp,
   const unsigned int & duration,

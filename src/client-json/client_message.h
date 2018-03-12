@@ -1,7 +1,6 @@
 #ifndef CLIENT_MESSAGE_HH
 #define CLIENT_MESSAGE_HH
 
-#include <cstddef>
 #include <string>
 #include <vector>
 #include <exception>
@@ -87,11 +86,11 @@ ClientInfo parse_client_info_msg(const std::string & data);
  */
 
 /* Message sent on initial WS connect */
-std::vector<std::byte> make_server_hello_msg(
+std::string make_server_hello_msg(
   const std::vector<std::string> & channels);
 
 /* Message sent to reinitialize the client's sourcebuffer */
-std::vector<std::byte> make_server_init_msg(
+std::string make_server_init_msg(
   const std::string & channel, 
   const std::string & video_codec,
   const std::string & audio_codec,
@@ -99,7 +98,7 @@ std::vector<std::byte> make_server_init_msg(
   const unsigned int & init_timestamp); /* starting timestamp in timescale */
 
 /* Audio segment message, payload contains the init and data */
-std::vector<std::byte> make_audio_msg(
+std::string make_audio_msg(
   const std::string & quality,
   const unsigned int & timestamp,           /* pts of segment */
   const unsigned int & duration,            /* length of segment in timescale */
@@ -107,7 +106,7 @@ std::vector<std::byte> make_audio_msg(
   const unsigned int & total_byte_length);  /* total length of all fragments */
 
 /* Video segment message, payload contains the init and data */
-std::vector<std::byte> make_video_msg(
+std::string make_video_msg(
   const std::string & quality,
   const unsigned int & timestamp,           /* see audio */
   const unsigned int & duration,
