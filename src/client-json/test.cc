@@ -29,13 +29,16 @@ int main(int argc, char * argv[]) {
 
   /* Test server message generation */
   vector<string> channels({"pbs", "nbc"});
-  
+
   print_msg(make_server_hello_msg(channels));
   print_msg(make_server_init_msg("pbs", "vcodec", "acodec", 180000, 0));
   print_msg(make_audio_msg("128k", 0, 480000, 0, 1000));
   print_msg(make_video_msg("1920x1080-20", 0, 180000, 0, 1000));
 
   /* Test client message parsing */
+  auto msg = unpack_client_msg("client-info {}");
+  assert(msg.first == ClientMsg::Info);
+  
   json client_init = {
     {"channel", "pbs"},
     {"playerWidth", 1920},

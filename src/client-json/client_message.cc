@@ -9,6 +9,23 @@
 using namespace std;
 using json = nlohmann::json;
 
+pair<ClientMsg::Type, string> unpack_client_msg(const string & data) {
+  int split_idx = data.find_first_of(' ');
+  if (split_idx == string::npos) {
+    throw ParseExeception("Invalid message from the client");
+  }
+  string type_str = data.substr(0, split_idx);
+  ClientMsg::Type type;
+  if (type_str == "client-init") {
+    type = ClientMsg::Init;
+  } else if (type_str == "client-info") {
+    type = ClientMsg::Info;
+  } else {
+    type = ClientMsg::Unknown;
+  }
+  return make_pair(type, data.substr(split_idx));
+}
+
 ClientInit parse_client_init_msg(const string & data) 
 {
   ClientInit ret;
@@ -30,15 +47,15 @@ ClientInfo parse_client_info_msg(const string & data)
     auto obj = json::parse(data);
     string event_str = obj["event"];
 
-    PlayerEvent event;
+    ClientInfo::PlayerEvent event;
     if (event_str == "timer") {
-      event = Timer;
+      event = ClientInfo::Timer;
     } else if (event_str == "rebuffer") {
-      event = Rebuffer;
+      event = ClientInfo::Rebuffer;
     } else if (event_str == "canplay") {
-      event = CanPlay;
+      event = ClientInfo::CanPlay;
     } else {
-      event = Unknown;
+      event = ClientInfo::Unknown;
     }
 
     ret.event = event;
@@ -53,7 +70,7 @@ ClientInfo parse_client_info_msg(const string & data)
     if (player_ready_state < 0 || player_ready_state > 4) {
       throw ParseExeception("Invalid player ready state");
     }
-    ret.player_ready_state = static_cast<PlayerReadyState>(player_ready_state);
+    ret.player_ready_state = static_cast<ClientInfo::PlayerReadyState>(player_ready_state);
 
   } catch (const ParseExeception & e) {
     throw e;
