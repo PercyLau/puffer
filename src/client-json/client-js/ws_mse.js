@@ -15,6 +15,7 @@ const HTML_MEDIA_READY_STATES = [
   'HAVE_ENOUGH_DATA'
 ];
 
+/* Server messages are of the form: "short_metadata_len|metadata_json|data" */
 function parse_server_msg(data) {
   var header_len = new DataView(data, 0, 2).getUint16();
   return {
@@ -24,6 +25,7 @@ function parse_server_msg(data) {
   };
 };
 
+/* Client messages are of the form: "message_type json_data" */
 function format_client_msg(msg_type, data) {
   return msg_type + ' ' + JSON.stringify(data);
 };
@@ -64,6 +66,8 @@ function AVSource(video, audio, options) {
 
   var that = this;
 
+  /* Initializes the video and audio source buffers, and sets the initial
+   * offset */
   function init_source_buffers() {
     var time_offset = init_timestamp / timescale + VIDEO_OFFSET_ADJUSTMENT;
 
@@ -110,6 +114,7 @@ function AVSource(video, audio, options) {
 
   this.isOpen = function() { return abuf != undefined && vbuf != undefined; };
 
+  /* Close the AV source, presumably it is being replaced */
   this.close = function() {
     console.log('Closing AV source');
     pending_audio_chunks = [];
@@ -217,12 +222,11 @@ function AVSource(video, audio, options) {
 function WebSocketClient(video, audio, channel_select) {
   var ws;
   var av_source;
-
-  // Statistics
   var init_time = new Date();
 
   var that = this;
 
+  /* Updates the list to show the available channels */
   function update_channel_select(channels) {
     for (var i = 0; i < channels.length; i++) {
       var option = document.createElement('option');
@@ -232,6 +236,7 @@ function WebSocketClient(video, audio, channel_select) {
     }
   };
 
+  /* Handle a websocket message from the server */
   function handle_msg(e) {
     var message = parse_server_msg(e.data);
     if (message.metadata.type == 'server-hello') {
