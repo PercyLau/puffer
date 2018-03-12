@@ -90,16 +90,18 @@ vector<byte> make_server_hello_msg(const vector<string> & channels)
 }
 
 vector<byte> make_server_init_msg(const string & channel, 
-                                       const string & video_codec,
-                                       const string & audio_codec,
-                                       const unsigned int & timescale) 
+                                  const string & video_codec,
+                                  const string & audio_codec,
+                                  const unsigned int & timescale,
+                                  const unsigned int & init_timestamp) 
 {
   json msg = {
     {"type", "server-init"},
     {"channel", channel},
     {"videoCodec", video_codec},
     {"audioCodec", audio_codec},
-    {"timescale", timescale}
+    {"timescale", timescale},
+    {"initTimestamp", init_timestamp}
   };
   return pack_json(msg);
 }

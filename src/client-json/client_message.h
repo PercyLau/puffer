@@ -35,10 +35,10 @@ enum PlayerReadyState
 typedef struct ClientInfo {
   PlayerEvent event;
 
-  double video_buffer_len;
+  double video_buffer_len;  /* Length of client's buffer in seconds */
   double audio_buffer_len;
 
-  unsigned int next_video_timestamp;
+  unsigned int next_video_timestamp;  /* Next segment the client is expecting */
   unsigned int next_audio_timestamp;
 
   int player_width;
@@ -77,27 +77,29 @@ ClientInfo parse_client_info_msg(const std::string & data);
  */
 
 /* Message sent on initial WS connect */
-std::vector<std::byte> make_server_hello_msg(const std::vector<std::string> & channels);
+std::vector<std::byte> make_server_hello_msg(
+  const std::vector<std::string> & channels);
 
 /* Message sent to reinitialize the client's sourcebuffer */
 std::vector<std::byte> make_server_init_msg(
   const std::string & channel, 
   const std::string & video_codec,
   const std::string & audio_codec,
-  const unsigned int & timescale);
+  const unsigned int & timescale,       /* video timescale */
+  const unsigned int & init_timestamp); /* starting timestamp in timescale */
 
-/* Audio chunk message, payload contains the init and data */
+/* Audio segment message, payload contains the init and data */
 std::vector<std::byte> make_audio_msg(
   const std::string & quality,
-  const unsigned int & timestamp,
-  const unsigned int & duration,
-  const unsigned int & byte_offset,
-  const unsigned int & total_byte_length);
+  const unsigned int & timestamp,           /* pts of segment */
+  const unsigned int & duration,            /* length of segment in timescale */
+  const unsigned int & byte_offset,         /* byte offset of fragment */
+  const unsigned int & total_byte_length);  /* total length of all fragments */
 
-/* Video chunk message, payload contains the init and data */
+/* Video segment message, payload contains the init and data */
 std::vector<std::byte> make_video_msg(
   const std::string & quality,
-  const unsigned int & timestamp,
+  const unsigned int & timestamp,           /* see audio */
   const unsigned int & duration,
   const unsigned int & byte_offset,
   const unsigned int & total_byte_length);
