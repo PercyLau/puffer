@@ -204,12 +204,22 @@ struct VideoField
               const unsigned int frame_luma_height,
               const unsigned int physical_luma_width,
               const mpeg2_fbuf_t * display_raster )
-    : presentation_time_stamp( presentation_time_stamp ),
-      top_field( top_field ),
-      contents( global_buffer_pool().make_buffer( luma_width, frame_luma_height / 2 ) )
+    : VideoField( presentation_time_stamp,
+                  top_field,
+                  luma_width,
+                  frame_luma_height )
   {
     contents->read_from_frame( top_field, physical_luma_width, display_raster );
   }
+
+  VideoField( const uint64_t presentation_time_stamp,
+              const bool top_field,
+              const unsigned int luma_width,
+              const unsigned int frame_luma_height )
+    : presentation_time_stamp( presentation_time_stamp ),
+      top_field( top_field ),
+      contents( global_buffer_pool().make_buffer( luma_width, frame_luma_height / 2 ) )
+  {}
 };
 
 struct TSPacketRequirements
@@ -674,13 +684,17 @@ class YUV4MPEGPipeOutput
 private:
   FileDescriptor output_ { STDOUT_FILENO };
   bool next_field_is_top_ { true };
+
+  uint64_t pending_frame_timestamp_ {};
   Raster pending_frame_;
 
   unsigned int frame_interval_;
   optional<uint64_t> expected_inner_timestamp_ {};
   unsigned int outer_timestamp_ {};
 
-  void write_frame()
+  VideoField missing_field;
+  
+  void write_frame_to_disk()
   {
     /* write out y4m */
     output_.write( "FRAME\n" );
@@ -701,7 +715,8 @@ private:
 public:
   YUV4MPEGPipeOutput( const VideoParameters & params )
     : pending_frame_( params.width, params.height ),
-      frame_interval_( params.frame_interval )
+      frame_interval_( params.frame_interval ),
+      missing_field( 0, false, params.width, params.height )
   {
     output_.write( "YUV4MPEG2 W" + to_string( params.width )
                    + " H" + to_string( params.height ) + " " + params.y4m_description
@@ -711,21 +726,51 @@ public:
   void write( const VideoField & field )
   {
     if ( field.top_field != next_field_is_top_ ) {
-      cerr << "skipping field with wrong parity\n";
+      cerr << "ignoring field with mismatched cadence\n";
       return;
     }
-
+    
     if ( expected_inner_timestamp_.has_value() ) {
-      const int64_t pts_64 = field.presentation_time_stamp;
-      const int64_t expected_64 = expected_inner_timestamp_.value();
-      const int64_t diff = abs( expected_64 - pts_64 );
+      const int64_t diff = abs( int64_t( expected_inner_timestamp_.value() ) - int64_t( field.presentation_time_stamp ) );
       if ( diff > 5 * frame_interval_ / 8 ) {
         cerr << "Warning, diff = " << diff << " (" << diff / double( frame_interval_ ) << " frames).";
         cerr << "Expected time stamp of " << expected_inner_timestamp_.value() << " but got " << field.presentation_time_stamp << "\n";
+        if ( field.presentation_time_stamp < expected_inner_timestamp_.value() ) {
+          cerr << "Ignoring field whose timestamp has already passed.\n";
+          return;
+        } else {
+          while ( abs( int64_t( expected_inner_timestamp_.value() ) - int64_t( field.presentation_time_stamp ) ) > 5 * frame_interval_ / 8 ) {
+            cerr << "Generating replacement fields to fill in gap.\n";
+
+            /* first field */
+            missing_field.presentation_time_stamp = expected_inner_timestamp_.value();
+            missing_field.top_field = next_field_is_top_;
+            write_raw( missing_field );
+
+            /* second field */
+            missing_field.presentation_time_stamp = expected_inner_timestamp_.value();
+            missing_field.top_field = next_field_is_top_;
+            write_raw( missing_field );
+          }
+        }
       }
      } else {
       expected_inner_timestamp_ = field.presentation_time_stamp;
       cerr << "initializing expected inner timestamp = " << expected_inner_timestamp_.value() << "\n";
+    }
+
+    write_raw( field );
+  }
+
+  void write_raw( const VideoField & field )
+  {
+    if ( field.top_field != next_field_is_top_ ) {
+      throw runtime_error( "field cadence mismatch" );
+    }
+
+    if ( field.top_field ) {
+      /* initialize pending frame */
+      pending_frame_timestamp_ = field.presentation_time_stamp;
     }
     
     /* copy field to proper lines of pending frame */
@@ -759,10 +804,10 @@ public:
 
     next_field_is_top_ = !next_field_is_top_;
     expected_inner_timestamp_.value() += frame_interval_ / 2;
-    
+
     if ( next_field_is_top_ ) {
       /* print out frame */
-      write_frame();
+      write_frame_to_disk();
     }
   }
 };
