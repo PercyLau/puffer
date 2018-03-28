@@ -603,7 +603,7 @@ public:
         break;
       case STATE_INVALID:
       case STATE_INVALID_END:
-        throw InvalidMPEG( "libmpeg2 is in STATE_INVALID" );
+        cerr << "libmpeg2 is in STATE_INVALID\n";
         break;
       case STATE_PICTURE:
         break;
@@ -719,17 +719,13 @@ public:
       const int64_t pts_64 = field.presentation_time_stamp;
       const int64_t expected_64 = expected_inner_timestamp_.value();
       const int64_t diff = abs( expected_64 - pts_64 );
-      if ( diff > frame_interval_ / 10 ) {
-        cerr << hex;
-        cerr << "Warning, diff = " << diff << ". ";
-        cerr << "expected time stamp of " << expected_inner_timestamp_.value() << " but got " << field.presentation_time_stamp << "\n";
-        cerr << dec;
+      if ( diff > 5 * frame_interval_ / 8 ) {
+        cerr << "Warning, diff = " << diff << " (" << diff / double( frame_interval_ ) << " frames).";
+        cerr << "Expected time stamp of " << expected_inner_timestamp_.value() << " but got " << field.presentation_time_stamp << "\n";
       }
-    } else {
+     } else {
       expected_inner_timestamp_ = field.presentation_time_stamp;
-      cerr << hex;
       cerr << "initializing expected inner timestamp = " << expected_inner_timestamp_.value() << "\n";
-      cerr << dec;
     }
     
     /* copy field to proper lines of pending frame */
@@ -813,13 +809,14 @@ int main( int argc, char *argv[] )
       }
 
       /* decode video */
-      try {
-        while ( not video_PES_packets.empty() ) {
-          video_decoder.decode_frame( video_PES_packets.front(), decoded_fields );
+      while ( not video_PES_packets.empty() ) {
+        try {
+          TimestampedPESPacket PES_packet { move( video_PES_packets.front() ) };
           video_PES_packets.pop();
+          video_decoder.decode_frame( PES_packet, decoded_fields );
+        } catch ( const non_fatal_exception & e ) {
+          print_exception( "video decode", e );
         }
-      } catch ( const non_fatal_exception & e ) {
-        print_exception( "video decode", e );
       }
 
       /* output fields? */
