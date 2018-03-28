@@ -56,6 +56,24 @@ struct Raster
   }
 };
 
+class non_fatal_exception : public runtime_error
+{
+public:
+  using runtime_error::runtime_error;
+};
+
+class InvalidMPEG : public non_fatal_exception
+{
+public:
+  using non_fatal_exception::non_fatal_exception;
+};
+
+class UnsupportedMPEG : public non_fatal_exception
+{
+public:
+  using non_fatal_exception::non_fatal_exception;
+};
+
 struct FieldBuffer : public Raster
 {
   using Raster::Raster;
@@ -199,11 +217,11 @@ struct TSPacketRequirements
   {
     /* enforce invariants */
     if ( packet.length() != ts_packet_length ) {
-      throw runtime_error( "invalid TS packet length" );
+      throw InvalidMPEG( "invalid TS packet length" );
     }
 
     if ( packet.front() != ts_packet_sync_byte ) {
-      throw runtime_error( "invalid TS sync byte" );
+      throw InvalidMPEG( "invalid TS sync byte" );
     }
   }
 };
@@ -227,7 +245,7 @@ struct TSPacketHeader : TSPacketRequirements
     /* find start of payload */
     switch ( adaptation_field_control ) {
     case 0:
-      throw runtime_error( "reserved value of adaptation field control" );
+      throw UnsupportedMPEG( "reserved value of adaptation field control" );
     case 1:
       /* already 4 */
       break;
@@ -241,7 +259,7 @@ struct TSPacketHeader : TSPacketRequirements
     }
 
     if ( payload_start > ts_packet_length ) {
-      throw runtime_error( "invalid TS packet" );
+      throw InvalidMPEG( "invalid TS packet" );
     }
   }
 };
@@ -260,7 +278,7 @@ struct TimestampedPESPacket
       PES_packet( move( s_PES_packet ) )
   {
     if ( payload_start_index >= PES_packet.size() ) {
-      throw runtime_error( "empty PES payload" );
+      throw InvalidMPEG( "empty PES payload" );
     }
   }
 
@@ -287,7 +305,7 @@ struct PESPacketHeader
   static uint8_t enforce_is_video( const uint8_t stream_id )
   {
     if ( (stream_id & 0xf0) != 0xe0 ) {
-      throw runtime_error( "not an MPEG-2 video stream" );
+      throw UnsupportedMPEG( "not an MPEG-2 video stream" );
     }
 
     return stream_id;
@@ -304,14 +322,15 @@ struct PESPacketHeader
     if ( packet.at( 0 ) != 0
          or packet.at( 1 ) != 0
          or packet.at( 2 ) != 1 ) {
-      throw runtime_error( "invalid PES start code" );
+      throw InvalidMPEG( "invalid PES start code" );
     }
 
     if ( payload_start > packet.length() ) {
-      throw runtime_error( "invalid PES packet" );
+      throw InvalidMPEG( "invalid PES packet" );
     }
 
     /*
+      unfortunately NBC San Francisco does not seem to use this
     if ( not data_alignment_indicator ) {
       throw runtime_error( "unaligned PES packet" );
     }
@@ -319,9 +338,9 @@ struct PESPacketHeader
 
     switch ( PTS_DTS_flags ) {
     case 0:
-      throw runtime_error( "missing PTS and DTS" );
+      throw UnsupportedMPEG( "missing PTS and DTS" );
     case 1:
-      throw runtime_error( "forbidden value of PTS_DTS_flags" );
+      throw InvalidMPEG( "forbidden value of PTS_DTS_flags" );
     case 3:
       decoding_time_stamp = (((uint64_t(uint8_t(packet.at( 14 )) & 0x0F) >> 1) << 30) |
                              (uint8_t(packet.at( 15 )) << 22) |
@@ -330,19 +349,19 @@ struct PESPacketHeader
                              (uint8_t(packet.at( 18 )) >> 1));
 
       if ( (packet.at( 14 ) & 0xf0) >> 4 != 1 ) {
-        throw runtime_error( "invalid DTS prefix bits" );
+        throw InvalidMPEG( "invalid DTS prefix bits" );
       }
 
       if ( (packet.at( 14 ) & 0x01) != 1 ) {
-        throw runtime_error( "invalid marker bit" );
+        throw InvalidMPEG( "invalid marker bit" );
       }
 
       if ( (packet.at( 16 ) & 0x01) != 1 ) {
-        throw runtime_error( "invalid marker bit" );
+        throw InvalidMPEG( "invalid marker bit" );
       }
 
       if ( (packet.at( 18 ) & 0x01) != 1 ) {
-        throw runtime_error( "invalid marker bit" );
+        throw InvalidMPEG( "invalid marker bit" );
       }
 
       /* fallthrough */
@@ -355,19 +374,19 @@ struct PESPacketHeader
                                  (uint8_t(packet.at( 13 )) >> 1));
 
       if ( (packet.at( 9 ) & 0xf0) >> 4 != PTS_DTS_flags ) {
-        throw runtime_error( "invalid PTS prefix bits" );
+        throw InvalidMPEG( "invalid PTS prefix bits" );
       }
 
       if ( (packet.at( 9 ) & 0x01) != 1 ) {
-        throw runtime_error( "invalid marker bit" );
+        throw InvalidMPEG( "invalid marker bit" );
       }
 
       if ( (packet.at( 11 ) & 0x01) != 1 ) {
-        throw runtime_error( "invalid marker bit" );
+        throw InvalidMPEG( "invalid marker bit" );
       }
 
       if ( (packet.at( 13 ) & 0x01) != 1 ) {
-        throw runtime_error( "invalid marker bit" );
+        throw InvalidMPEG( "invalid marker bit" );
       }
     }
 
@@ -400,7 +419,7 @@ struct VideoParameters
       y4m_description = "F60000:1001 Ip";
       progressive = true;
     } else {
-      throw runtime_error( "unsupported format: " + format );
+      throw UnsupportedMPEG( "unsupported format: " + format );
     }
   }
 };
@@ -582,12 +601,12 @@ public:
         break;
       case STATE_INVALID:
       case STATE_INVALID_END:
-        cerr << "invalid state\n";
+        throw InvalidMPEG( "libmpeg2 is in STATE_INVALID" );
         break;
       case STATE_PICTURE:
         break;
       case STATE_PICTURE_2ND:
-        throw runtime_error( "unsupported field pictures" );
+        throw UnsupportedMPEG( "unsupported field pictures" );
       default:
         /* do nothing */
         break;
@@ -761,7 +780,7 @@ int main( int argc, char *argv[] )
                                            ts_packet_length ),
                         video_PES_packets );
         }
-      } catch ( const exception & e ) {
+      } catch ( const non_fatal_exception & e ) {
         print_exception( "transport stream input", e );
       }
 
@@ -771,7 +790,7 @@ int main( int argc, char *argv[] )
           video_decoder.decode_frame( video_PES_packets.front(), decoded_fields );
           video_PES_packets.pop();
         }
-      } catch ( const exception & e ) {
+      } catch ( const non_fatal_exception & e ) {
         print_exception( "video decode", e );
       }
 
