@@ -311,9 +311,11 @@ struct PESPacketHeader
       throw runtime_error( "invalid PES packet" );
     }
 
+    /*
     if ( not data_alignment_indicator ) {
       throw runtime_error( "unaligned PES packet" );
     }
+    */
 
     switch ( PTS_DTS_flags ) {
     case 0:
@@ -616,7 +618,7 @@ public:
     }
   }
 
-  void parse( const string_view & packet, vector<TimestampedPESPacket> & video_PES_packets )
+  void parse( const string_view & packet, queue<TimestampedPESPacket> & video_PES_packets )
   {
     TSPacketHeader header { packet };
 
@@ -631,9 +633,9 @@ public:
       if ( not PES_packet_.empty() ) {
         PESPacketHeader pes_header { PES_packet_ };
 
-        video_PES_packets.emplace_back( pes_header.presentation_time_stamp,
-                                        pes_header.payload_start,
-                                        move( PES_packet_ ) );
+        video_PES_packets.emplace( pes_header.presentation_time_stamp,
+                                   pes_header.payload_start,
+                                   move( PES_packet_ ) );
         PES_packet_.clear();
       }
 
@@ -724,45 +726,54 @@ public:
 
 int main( int argc, char *argv[] )
 {
-  if ( argc != 3 ) {
-    cerr << "Usage: " << argv[ 0 ] << " pid format\n\n   format = \"1080i30\" | \"720p60\"\n";
-    return EXIT_FAILURE;
-  }
-
-  /* NB: "1080i30" is the preferred notation in Poynton's books and "Video Demystified" */
-
-  const unsigned int pid = stoi( argv[ 1 ] );
-  const VideoParameters params { argv[ 2 ] };
-
-  FileDescriptor stdin { 0 };
-
-  TSParser parser { pid };
-  vector<TimestampedPESPacket> video_PES_packets; /* output of TSParser */
-
-  MPEG2VideoDecoder video_decoder { params };
-  queue<VideoField> decoded_fields; /* output of MPEG2VideoDecoder */
-
-  YUV4MPEGPipeOutput y4m_output { params };
-
   try {
+    if ( argc < 1 ) { /* for pedants */
+      abort();
+    }
+
+    if ( argc != 3 ) {
+      cerr << "Usage: " << argv[ 0 ] << " pid format\n\n   format = \"1080i30\" | \"720p60\"\n";
+      return EXIT_FAILURE;
+    }
+
+    /* NB: "1080i30" is the preferred notation in Poynton's books and "Video Demystified" */
+    const unsigned int pid = stoi( argv[ 1 ] );
+    const VideoParameters params { argv[ 2 ] };
+
+    FileDescriptor stdin { 0 };
+
+    TSParser parser { pid };
+    queue<TimestampedPESPacket> video_PES_packets; /* output of TSParser */
+
+    MPEG2VideoDecoder video_decoder { params };
+    queue<VideoField> decoded_fields; /* output of MPEG2VideoDecoder */
+
+    YUV4MPEGPipeOutput y4m_output { params };
+
     while ( true ) {
       /* parse transport stream packets into video (and eventually audio) PES packets */
+      try {
+        const string chunk = stdin.read_exactly( ts_packet_length * packets_in_chunk );
+        const string_view chunk_view { chunk };
 
-      const string chunk = stdin.read_exactly( ts_packet_length * packets_in_chunk );
-      const string_view chunk_view { chunk };
-
-      for ( unsigned packet_no = 0; packet_no < packets_in_chunk; packet_no++ ) {
-        parser.parse( chunk_view.substr( packet_no * ts_packet_length,
-                                         ts_packet_length ),
-                      video_PES_packets );
+        for ( unsigned packet_no = 0; packet_no < packets_in_chunk; packet_no++ ) {
+          parser.parse( chunk_view.substr( packet_no * ts_packet_length,
+                                           ts_packet_length ),
+                        video_PES_packets );
+        }
+      } catch ( const exception & e ) {
+        print_exception( "transport stream input", e );
       }
 
       /* decode video */
-      for ( auto & video_PES_packet : video_PES_packets ) {
-        video_decoder.decode_frame( video_PES_packet, decoded_fields );
+      try {
+        while ( not video_PES_packets.empty() ) {
+          video_decoder.decode_frame( video_PES_packets.front(), decoded_fields );
+          video_PES_packets.pop();
+        }
+      } catch ( const exception & e ) {
+        print_exception( "video decode", e );
       }
-
-      video_PES_packets.clear();
 
       /* output fields? */
       while ( not decoded_fields.empty() ) {
