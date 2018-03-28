@@ -11,6 +11,10 @@
 #include <queue>
 #include <optional>
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
 #ifdef HAVE_STRING_VIEW
 #include <string_view>
 #elif HAVE_EXPERIMENTAL_STRING_VIEW
@@ -692,9 +696,9 @@ public:
 class YUV4MPEGPipeOutput
 {
 private:
-  FileDescriptor output_ { STDOUT_FILENO };
   bool next_field_is_top_ { true };
 
+  unsigned int pending_chunk_outer_timestamp_ {};
   unsigned int pending_chunk_index_ {};
   vector<Raster> pending_chunk_;
 
@@ -702,8 +706,11 @@ private:
   optional<uint64_t> expected_inner_timestamp_ {};
   unsigned int outer_timestamp_ {};
 
-  VideoField missing_field;
+  VideoField missing_field_;
 
+  string directory_;
+  string y4m_header_;
+  
   Raster & pending_frame()
   {
     return pending_chunk_.at( pending_chunk_index_ );
@@ -712,21 +719,41 @@ private:
   void write_frame_to_disk()
   {
     if ( pending_chunk_index_ == 0 ) {
-      cerr << "Starting new chunk with outer timestamp = " << outer_timestamp_ << "\n";
+      pending_chunk_outer_timestamp_ = outer_timestamp_ / 300;
+      cerr << "Starting new chunk with outer timestamp = " << pending_chunk_outer_timestamp_ << "\n";
     }
-    
-    /* write out y4m */
-    output_.write( "FRAME\n" );
 
-    /* Y */
-    output_.write( string_view { reinterpret_cast<char *>( pending_frame().Y.get() ), pending_frame().width * pending_frame().height } );
+    if ( pending_chunk_index_ == pending_chunk_.size() - 1 ) {
+      const string filename = "video." + to_string( pending_chunk_outer_timestamp_ ) + ".y4m";
 
-    /* Cb */
-    output_.write( string_view { reinterpret_cast<char *>( pending_frame().Cb.get() ), (pending_frame().width/2) * (pending_frame().height/2) } );
+      cerr << "Writing " << directory_ + "/" + filename << " ... ";
 
-    /* Cr */
-    output_.write( string_view { reinterpret_cast<char *>( pending_frame().Cr.get() ), (pending_frame().width/2) * (pending_frame().height/2) } );
+      FileDescriptor directory_fd_ { CheckSystemCall( "open " + directory_, open( directory_.c_str(),
+                                                                                  O_DIRECTORY ) ) };
 
+      FileDescriptor output_ { CheckSystemCall( "openat", openat( directory_fd_.fd_num(),
+                                                                  filename.c_str(),
+                                                                  O_WRONLY | O_CREAT | O_EXCL,
+                                                                  S_IRUSR | S_IWUSR ) ) };
+
+      output_.write( y4m_header_ );
+      
+      for ( const auto & pending_frame : pending_chunk_ ) {
+        output_.write( "FRAME\n" );
+        
+        /* Y */
+        output_.write( string_view { reinterpret_cast<char *>( pending_frame.Y.get() ), pending_frame.width * pending_frame.height } );
+
+        /* Cb */
+        output_.write( string_view { reinterpret_cast<char *>( pending_frame.Cb.get() ), (pending_frame.width/2) * (pending_frame.height/2) } );
+
+        /* Cr */
+        output_.write( string_view { reinterpret_cast<char *>( pending_frame.Cr.get() ), (pending_frame.width/2) * (pending_frame.height/2) } );
+      }
+
+      cerr << "done.\n";
+    }
+        
     /* advance virtual clock */
     outer_timestamp_ += frame_interval_;
 
@@ -734,15 +761,17 @@ private:
   }
 
 public:
-  YUV4MPEGPipeOutput( const unsigned int frames_per_chunk, const VideoParameters & params )
+  YUV4MPEGPipeOutput( const string directory,
+                      const unsigned int frames_per_chunk,
+                      const VideoParameters & params )
     : pending_chunk_(),
       frame_interval_( params.frame_interval ),
-      missing_field( 0, false, params.width, params.height )
-  {
-    output_.write( "YUV4MPEG2 W" + to_string( params.width )
+      missing_field_( 0, false, params.width, params.height ),
+      directory_( directory ),
+      y4m_header_( "YUV4MPEG2 W" + to_string( params.width )
                    + " H" + to_string( params.height ) + " " + params.y4m_description
-                   + " A1:1 C420mpeg2\n" );
-
+                   + " A1:1 C420mpeg2\n" )
+  {
     for ( unsigned int i = 0; i < frames_per_chunk; i++ ) {
       pending_chunk_.emplace_back( params.width, params.height );
     }
@@ -760,8 +789,8 @@ public:
       if ( timestamp_difference( expected_inner_timestamp_.value(),
                                  field.presentation_time_stamp )
            > 5 * frame_interval_ / 8 ) {
-        cerr << "Warning, diff = " << diff << " (" << diff / double( frame_interval_ ) << " frames).";
-        cerr << "Expected time stamp of " << expected_inner_timestamp_.value() << " but got " << field.presentation_time_stamp << "\n";
+        cerr << "Warning, diff = " << diff << " (" << diff / double( frame_interval_ ) << " frames): ";
+        cerr << "expected time stamp of " << expected_inner_timestamp_.value() << " but got " << field.presentation_time_stamp << "\n";
         if ( field.presentation_time_stamp < expected_inner_timestamp_.value() ) {
           if ( diff > frame_interval_ * 60 * 60 ) {
             throw runtime_error( "BUG: huge negative difference (need to reinitialize inner timestamp)" );
@@ -774,14 +803,14 @@ public:
             cerr << "Generating replacement fields to fill in gap.\n";
 
             /* first field */
-            missing_field.presentation_time_stamp = expected_inner_timestamp_.value();
-            missing_field.top_field = next_field_is_top_;
-            write_raw( missing_field );
+            missing_field_.presentation_time_stamp = expected_inner_timestamp_.value();
+            missing_field_.top_field = next_field_is_top_;
+            write_raw( missing_field_ );
 
             /* second field */
-            missing_field.presentation_time_stamp = expected_inner_timestamp_.value();
-            missing_field.top_field = next_field_is_top_;
-            write_raw( missing_field );
+            missing_field_.presentation_time_stamp = expected_inner_timestamp_.value();
+            missing_field_.top_field = next_field_is_top_;
+            write_raw( missing_field_ );
           }
         }
       }
@@ -845,8 +874,8 @@ int main( int argc, char *argv[] )
       abort();
     }
 
-    if ( argc != 4 ) {
-      cerr << "Usage: " << argv[ 0 ] << " pid format frames_per_chunk\n\n   format = \"1080i30\" | \"720p60\"\n";
+    if ( argc != 5 ) {
+      cerr << "Usage: " << argv[ 0 ] << " pid format frames_per_chunk target_directory\n\n   format = \"1080i30\" | \"720p60\"\n";
       return EXIT_FAILURE;
     }
 
@@ -854,6 +883,7 @@ int main( int argc, char *argv[] )
     const unsigned int pid = stoi( argv[ 1 ] );
     const VideoParameters params { argv[ 2 ] };
     const unsigned int frames_per_chunk = atoi( argv[ 3 ] );
+    const string directory = argv[ 4 ];
     
     FileDescriptor stdin { 0 };
 
@@ -863,7 +893,7 @@ int main( int argc, char *argv[] )
     MPEG2VideoDecoder video_decoder { params };
     queue<VideoField> decoded_fields; /* output of MPEG2VideoDecoder */
 
-    YUV4MPEGPipeOutput y4m_output { frames_per_chunk, params };
+    YUV4MPEGPipeOutput y4m_output { directory, frames_per_chunk, params };
 
     while ( true ) {
       /* parse transport stream packets into video (and eventually audio) PES packets */
