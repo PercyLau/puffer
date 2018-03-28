@@ -695,42 +695,57 @@ private:
   FileDescriptor output_ { STDOUT_FILENO };
   bool next_field_is_top_ { true };
 
-  uint64_t pending_frame_timestamp_ {};
-  Raster pending_frame_;
+  unsigned int pending_chunk_index_ {};
+  vector<Raster> pending_chunk_;
 
   unsigned int frame_interval_;
   optional<uint64_t> expected_inner_timestamp_ {};
   unsigned int outer_timestamp_ {};
 
   VideoField missing_field;
-  
+
+  Raster & pending_frame()
+  {
+    return pending_chunk_.at( pending_chunk_index_ );
+  }
+
   void write_frame_to_disk()
   {
+    if ( pending_chunk_index_ == 0 ) {
+      cerr << "Starting new chunk with outer timestamp = " << outer_timestamp_ << "\n";
+    }
+    
     /* write out y4m */
     output_.write( "FRAME\n" );
 
     /* Y */
-    output_.write( string_view { reinterpret_cast<char *>( pending_frame_.Y.get() ), pending_frame_.width * pending_frame_.height } );
+    output_.write( string_view { reinterpret_cast<char *>( pending_frame().Y.get() ), pending_frame().width * pending_frame().height } );
 
     /* Cb */
-    output_.write( string_view { reinterpret_cast<char *>( pending_frame_.Cb.get() ), (pending_frame_.width/2) * (pending_frame_.height/2) } );
+    output_.write( string_view { reinterpret_cast<char *>( pending_frame().Cb.get() ), (pending_frame().width/2) * (pending_frame().height/2) } );
 
     /* Cr */
-    output_.write( string_view { reinterpret_cast<char *>( pending_frame_.Cr.get() ), (pending_frame_.width/2) * (pending_frame_.height/2) } );
+    output_.write( string_view { reinterpret_cast<char *>( pending_frame().Cr.get() ), (pending_frame().width/2) * (pending_frame().height/2) } );
 
     /* advance virtual clock */
     outer_timestamp_ += frame_interval_;
+
+    pending_chunk_index_ = (pending_chunk_index_ + 1) % pending_chunk_.size();
   }
 
 public:
-  YUV4MPEGPipeOutput( const VideoParameters & params )
-    : pending_frame_( params.width, params.height ),
+  YUV4MPEGPipeOutput( const unsigned int frames_per_chunk, const VideoParameters & params )
+    : pending_chunk_(),
       frame_interval_( params.frame_interval ),
       missing_field( 0, false, params.width, params.height )
   {
     output_.write( "YUV4MPEG2 W" + to_string( params.width )
                    + " H" + to_string( params.height ) + " " + params.y4m_description
                    + " A1:1 C420mpeg2\n" );
+
+    for ( unsigned int i = 0; i < frames_per_chunk; i++ ) {
+      pending_chunk_.emplace_back( params.width, params.height );
+    }
   }
 
   void write( const VideoField & field )
@@ -783,39 +798,34 @@ public:
     if ( field.top_field != next_field_is_top_ ) {
       throw runtime_error( "field cadence mismatch" );
     }
-
-    if ( field.top_field ) {
-      /* initialize pending frame */
-      pending_frame_timestamp_ = field.presentation_time_stamp;
-    }
     
     /* copy field to proper lines of pending frame */
-
+    
     /* copy Y */
     for ( unsigned int source_row = 0, dest_row = (next_field_is_top_ ? 0 : 1);
           source_row < field.contents->height;
           source_row += 1, dest_row += 2 ) {
-      memcpy( pending_frame_.Y.get() + dest_row * pending_frame_.width,
-              field.contents->Y.get() + source_row * pending_frame_.width,
-              pending_frame_.width );
+      memcpy( pending_frame().Y.get() + dest_row * pending_frame().width,
+              field.contents->Y.get() + source_row * pending_frame().width,
+              pending_frame().width );
     }
 
     /* copy Cb */
     for ( unsigned int source_row = 0, dest_row = (next_field_is_top_ ? 0 : 1);
           source_row < field.contents->height/2;
           source_row += 1, dest_row += 2 ) {
-      memcpy( pending_frame_.Cb.get() + dest_row * pending_frame_.width/2,
-              field.contents->Cb.get() + source_row * pending_frame_.width/2,
-              pending_frame_.width/2 );
+      memcpy( pending_frame().Cb.get() + dest_row * pending_frame().width/2,
+              field.contents->Cb.get() + source_row * pending_frame().width/2,
+              pending_frame().width/2 );
     }
 
     /* copy Cr */
     for ( unsigned int source_row = 0, dest_row = (next_field_is_top_ ? 0 : 1);
           source_row < field.contents->height/2;
           source_row += 1, dest_row += 2 ) {
-      memcpy( pending_frame_.Cr.get() + dest_row * pending_frame_.width/2,
-              field.contents->Cr.get() + source_row * pending_frame_.width/2,
-              pending_frame_.width/2 );
+      memcpy( pending_frame().Cr.get() + dest_row * pending_frame().width/2,
+              field.contents->Cr.get() + source_row * pending_frame().width/2,
+              pending_frame().width/2 );
     }
 
     next_field_is_top_ = !next_field_is_top_;
@@ -835,15 +845,16 @@ int main( int argc, char *argv[] )
       abort();
     }
 
-    if ( argc != 3 ) {
-      cerr << "Usage: " << argv[ 0 ] << " pid format\n\n   format = \"1080i30\" | \"720p60\"\n";
+    if ( argc != 4 ) {
+      cerr << "Usage: " << argv[ 0 ] << " pid format frames_per_chunk\n\n   format = \"1080i30\" | \"720p60\"\n";
       return EXIT_FAILURE;
     }
 
     /* NB: "1080i30" is the preferred notation in Poynton's books and "Video Demystified" */
     const unsigned int pid = stoi( argv[ 1 ] );
     const VideoParameters params { argv[ 2 ] };
-
+    const unsigned int frames_per_chunk = atoi( argv[ 3 ] );
+    
     FileDescriptor stdin { 0 };
 
     TSParser parser { pid };
@@ -852,7 +863,7 @@ int main( int argc, char *argv[] )
     MPEG2VideoDecoder video_decoder { params };
     queue<VideoField> decoded_fields; /* output of MPEG2VideoDecoder */
 
-    YUV4MPEGPipeOutput y4m_output { params };
+    YUV4MPEGPipeOutput y4m_output { frames_per_chunk, params };
 
     while ( true ) {
       /* parse transport stream packets into video (and eventually audio) PES packets */
