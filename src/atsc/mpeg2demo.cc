@@ -9,6 +9,7 @@
 #include <cstring>
 #include <array>
 #include <queue>
+#include <optional>
 
 #ifdef HAVE_STRING_VIEW
 #include <string_view>
@@ -524,11 +525,11 @@ private:
     }
 
     bool next_field_is_top = (pic->flags & PIC_FLAG_TOP_FIELD_FIRST) | progressive_sequence_;
-    uint64_t presentation_time_stamp = (uint64_t( pic->tag ) << 32) | (pic->tag2);
+    uint64_t presentation_time_stamp_27M = 300 * ( (uint64_t( pic->tag ) << 32) | (pic->tag2) );
 
     /* output each field */
     for ( unsigned int field = 0; field < pic->nb_fields; field++ ) {
-      output.emplace( presentation_time_stamp,
+      output.emplace( presentation_time_stamp_27M,
                       next_field_is_top,
                       display_width_,
                       display_height_,
@@ -536,6 +537,7 @@ private:
                       display_raster );
 
       next_field_is_top = !next_field_is_top;
+      presentation_time_stamp_27M += frame_interval_ / 2; /* treat all as interlaced */
     }
   }
 
@@ -672,7 +674,11 @@ class YUV4MPEGPipeOutput
 private:
   FileDescriptor output_ { STDOUT_FILENO };
   bool next_field_is_top_ { true };
-  Raster pending_frame;
+  Raster pending_frame_;
+
+  unsigned int frame_interval_;
+  optional<uint64_t> expected_inner_timestamp_ {};
+  unsigned int outer_timestamp_ {};
 
   void write_frame()
   {
@@ -680,18 +686,22 @@ private:
     output_.write( "FRAME\n" );
 
     /* Y */
-    output_.write( string_view { reinterpret_cast<char *>( pending_frame.Y.get() ), pending_frame.width * pending_frame.height } );
+    output_.write( string_view { reinterpret_cast<char *>( pending_frame_.Y.get() ), pending_frame_.width * pending_frame_.height } );
 
     /* Cb */
-    output_.write( string_view { reinterpret_cast<char *>( pending_frame.Cb.get() ), (pending_frame.width/2) * (pending_frame.height/2) } );
+    output_.write( string_view { reinterpret_cast<char *>( pending_frame_.Cb.get() ), (pending_frame_.width/2) * (pending_frame_.height/2) } );
 
     /* Cr */
-    output_.write( string_view { reinterpret_cast<char *>( pending_frame.Cr.get() ), (pending_frame.width/2) * (pending_frame.height/2) } );
+    output_.write( string_view { reinterpret_cast<char *>( pending_frame_.Cr.get() ), (pending_frame_.width/2) * (pending_frame_.height/2) } );
+
+    /* advance virtual clock */
+    outer_timestamp_ += frame_interval_;
   }
 
 public:
   YUV4MPEGPipeOutput( const VideoParameters & params )
-    : pending_frame( params.width, params.height )
+    : pending_frame_( params.width, params.height ),
+      frame_interval_( params.frame_interval )
   {
     output_.write( "YUV4MPEG2 W" + to_string( params.width )
                    + " H" + to_string( params.height ) + " " + params.y4m_description
@@ -705,37 +715,55 @@ public:
       return;
     }
 
+    if ( expected_inner_timestamp_.has_value() ) {
+      const int64_t pts_64 = field.presentation_time_stamp;
+      const int64_t expected_64 = expected_inner_timestamp_.value();
+      const int64_t diff = abs( expected_64 - pts_64 );
+      if ( diff > frame_interval_ / 10 ) {
+        cerr << hex;
+        cerr << "Warning, diff = " << diff << ". ";
+        cerr << "expected time stamp of " << expected_inner_timestamp_.value() << " but got " << field.presentation_time_stamp << "\n";
+        cerr << dec;
+      }
+    } else {
+      expected_inner_timestamp_ = field.presentation_time_stamp;
+      cerr << hex;
+      cerr << "initializing expected inner timestamp = " << expected_inner_timestamp_.value() << "\n";
+      cerr << dec;
+    }
+    
     /* copy field to proper lines of pending frame */
 
     /* copy Y */
     for ( unsigned int source_row = 0, dest_row = (next_field_is_top_ ? 0 : 1);
           source_row < field.contents->height;
           source_row += 1, dest_row += 2 ) {
-      memcpy( pending_frame.Y.get() + dest_row * pending_frame.width,
-              field.contents->Y.get() + source_row * pending_frame.width,
-              pending_frame.width );
+      memcpy( pending_frame_.Y.get() + dest_row * pending_frame_.width,
+              field.contents->Y.get() + source_row * pending_frame_.width,
+              pending_frame_.width );
     }
 
     /* copy Cb */
     for ( unsigned int source_row = 0, dest_row = (next_field_is_top_ ? 0 : 1);
           source_row < field.contents->height/2;
           source_row += 1, dest_row += 2 ) {
-      memcpy( pending_frame.Cb.get() + dest_row * pending_frame.width/2,
-              field.contents->Cb.get() + source_row * pending_frame.width/2,
-              pending_frame.width/2 );
+      memcpy( pending_frame_.Cb.get() + dest_row * pending_frame_.width/2,
+              field.contents->Cb.get() + source_row * pending_frame_.width/2,
+              pending_frame_.width/2 );
     }
 
     /* copy Cr */
     for ( unsigned int source_row = 0, dest_row = (next_field_is_top_ ? 0 : 1);
           source_row < field.contents->height/2;
           source_row += 1, dest_row += 2 ) {
-      memcpy( pending_frame.Cr.get() + dest_row * pending_frame.width/2,
-              field.contents->Cr.get() + source_row * pending_frame.width/2,
-              pending_frame.width/2 );
+      memcpy( pending_frame_.Cr.get() + dest_row * pending_frame_.width/2,
+              field.contents->Cr.get() + source_row * pending_frame_.width/2,
+              pending_frame_.width/2 );
     }
 
     next_field_is_top_ = !next_field_is_top_;
-
+    expected_inner_timestamp_.value() += frame_interval_ / 2;
+    
     if ( next_field_is_top_ ) {
       /* print out frame */
       write_frame();
