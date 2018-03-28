@@ -37,6 +37,16 @@ inline T * notnull( const string & context, T * const x )
   return x ? x : throw runtime_error( context + ": returned null pointer" );
 }
 
+uint64_t timestamp_difference( const uint64_t ts_64, const uint64_t ts_33 )
+{
+  const uint64_t second_ts_unwrapped = (ts_64 & 0xffffffff80000000) | (ts_33 & 0x000000007fffffff);
+
+  const int64_t first_ts_signed = ts_64;
+  const int64_t second_ts_signed = second_ts_unwrapped;
+
+  return abs( first_ts_signed - second_ts_signed );
+}
+
 struct Raster
 {
   unsigned int width, height;
@@ -732,14 +742,20 @@ public:
     
     if ( expected_inner_timestamp_.has_value() ) {
       const int64_t diff = abs( int64_t( expected_inner_timestamp_.value() ) - int64_t( field.presentation_time_stamp ) );
-      if ( diff > 5 * frame_interval_ / 8 ) {
+      if ( timestamp_difference( expected_inner_timestamp_.value(),
+                                 field.presentation_time_stamp )
+           > 5 * frame_interval_ / 8 ) {
         cerr << "Warning, diff = " << diff << " (" << diff / double( frame_interval_ ) << " frames).";
         cerr << "Expected time stamp of " << expected_inner_timestamp_.value() << " but got " << field.presentation_time_stamp << "\n";
         if ( field.presentation_time_stamp < expected_inner_timestamp_.value() ) {
-          cerr << "Ignoring field whose timestamp has already passed.\n";
-          return;
+          if ( diff > frame_interval_ * 60 * 60 ) {
+            throw runtime_error( "BUG: huge negative difference (need to reinitialize inner timestamp)" );
+            return;
+          }
         } else {
-          while ( abs( int64_t( expected_inner_timestamp_.value() ) - int64_t( field.presentation_time_stamp ) ) > 5 * frame_interval_ / 8 ) {
+          while ( timestamp_difference( expected_inner_timestamp_.value(),
+                                        field.presentation_time_stamp )
+                  > 5 * frame_interval_ / 8 ) {
             cerr << "Generating replacement fields to fill in gap.\n";
 
             /* first field */
