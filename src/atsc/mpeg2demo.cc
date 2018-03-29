@@ -356,7 +356,7 @@ struct PESPacketHeader
 
   PESPacketHeader( const string_view & packet, const bool is_video )
     : stream_id( enforce_stream_id( is_video, packet.at( 3 ) ) ),
-      payload_start( packet.at( 8 ) + 1 ),
+      payload_start( packet.at( 8 ) + 9 ),
       PES_packet_length( (packet.at( 4 ) << 8) | packet.at( 5 ) ),
       data_alignment_indicator( packet.at( 6 ) & 0x04 ),
       PTS_DTS_flags( (packet.at( 7 ) & 0xc0) >> 6 ),
