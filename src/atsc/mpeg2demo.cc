@@ -23,7 +23,9 @@ using std::experimental::string_view;
 #endif
 
 extern "C" {
-#include "mpeg2.h"
+#include <mpeg2.h>
+#include <a52dec/a52.h>
+#include <a52dec/mm_accel.h>
 }
  
 #include "file_descriptor.hh"
@@ -326,12 +328,27 @@ struct TimestampedPESPacket
 
   uint8_t * payload_start()
   {
+    if ( payload_start_index >= PES_packet.length()
+         or payload_start_index >= payload_end_index ) {
+      throw InvalidMPEG( "payload starts after end of PES packet" );
+    }
     return reinterpret_cast<uint8_t *>( PES_packet.data() + payload_start_index );
   }
 
   uint8_t * payload_end()
   {
+    if ( payload_end_index > PES_packet.length() ) {
+      throw InvalidMPEG( "payload ends after end of PES packet" );
+    }
     return reinterpret_cast<uint8_t *>( PES_packet.data() + payload_end_index );
+  }
+
+  size_t payload_length() const
+  {
+    if ( payload_end_index < payload_start_index ) {
+      throw InvalidMPEG( "payload ends before it starts" );
+    }
+    return payload_end_index - payload_start_index;
   }
 };
 
@@ -470,6 +487,67 @@ struct VideoParameters
       progressive = true;
     } else {
       throw UnsupportedMPEG( "unsupported format: " + format );
+    }
+  }
+};
+
+class A52AudioDecoder
+{
+private:
+  struct A52Deleter
+  {
+    void operator()( a52_state_t * const x ) const
+    {
+      a52_free( x );
+    }
+  };
+
+  unique_ptr<a52_state_t, A52Deleter> decoder_;
+
+public:
+  A52AudioDecoder()
+    : decoder_( notnull( "a52_init", a52_init( MM_ACCEL_DJBFFT ) ) )
+  {}
+
+  void decode_frames( TimestampedPESPacket & PES_packet /* mutable */ )
+  {
+    while ( PES_packet.payload_length() ) {
+      if ( PES_packet.payload_length() < 7 ) {
+        throw InvalidMPEG( "PES packet too small" );
+      }
+
+      int flags, sample_rate, bit_rate;
+      const int frame_length = a52_syncinfo( PES_packet.payload_start(),
+                                             &flags, &sample_rate, &bit_rate );
+      if ( frame_length == 0 ) {
+        throw InvalidMPEG( "invalid A/52 frame" );
+      }
+
+      if ( sample_rate != 48000 ) {
+        throw UnsupportedMPEG( "unsupported sample_rate of " + to_string( sample_rate ) + " Hz" );
+      }
+
+      flags = A52_STEREO | A52_ADJUST_LEVEL;
+      sample_t level = 32767;
+
+      if ( a52_frame( decoder_.get(), PES_packet.payload_start(),
+                      &flags, &level, 0 ) ) {
+        throw InvalidMPEG( "a52_frame returned error" );
+      }
+
+      if ( flags != A52_STEREO ) {
+        throw InvalidMPEG( "could not downmix to stereo" );
+      }
+
+      /* decode all six blocks in the frame */
+      for ( unsigned int i = 0; i < 6; i++ ) {
+        if ( a52_block( decoder_.get() ) ) {
+          throw InvalidMPEG( "a52_block returned error" );
+        }
+      }
+
+      /* get ready for next frame */
+      PES_packet.payload_start_index += frame_length;
     }
   }
 };
@@ -926,6 +1004,8 @@ int main( int argc, char *argv[] )
 
     YUV4MPEGPipeOutput y4m_output { directory, frames_per_chunk, params };
 
+    A52AudioDecoder audio_decoder;
+
     FileDescriptor output_ { STDOUT_FILENO };
     
     while ( true ) {
@@ -962,9 +1042,7 @@ int main( int argc, char *argv[] )
         try {
           TimestampedPESPacket PES_packet { move( audio_PES_packets.front() ) };
           audio_PES_packets.pop();
-          unsigned int payload_len = PES_packet.payload_end() - PES_packet.payload_start();
-          string_view audio { reinterpret_cast<char *>( PES_packet.payload_start() ), payload_len };
-          output_.write( audio );
+          audio_decoder.decode_frames( PES_packet );
         } catch ( const non_fatal_exception & e ) {
           print_exception( "audio decode", e );
         }

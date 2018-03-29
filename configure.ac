@@ -35,6 +35,7 @@ AC_LANG_POP(C++)
 # Checks for typedefs, structures, and compiler characteristics.
 
 # Checks for library functions.
+AC_SEARCH_LIBS([a52_init], [a52], , [AC_MSG_ERROR([Unable to find liba52.])])
 
 AC_CONFIG_FILES([
     Makefile
