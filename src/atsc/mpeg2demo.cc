@@ -10,6 +10,7 @@
 #include <array>
 #include <queue>
 #include <optional>
+#include <cmath>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -491,6 +492,12 @@ struct VideoParameters
   }
 };
 
+struct AudioChunk
+{
+  uint64_t presentation_time_stamp;
+  int16_t left[ 256 ], right[ 256 ];
+};
+
 class A52AudioDecoder
 {
 private:
@@ -504,12 +511,22 @@ private:
 
   unique_ptr<a52_state_t, A52Deleter> decoder_;
 
+  sample_t check_sample( const sample_t & sample )
+  {
+    if ( sample > 32767.4 or sample < -32767.4 ) {
+      throw InvalidMPEG( "sample out of range" );
+    }
+
+    return sample;
+  }
+
 public:
   A52AudioDecoder()
     : decoder_( notnull( "a52_init", a52_init( MM_ACCEL_DJBFFT ) ) )
   {}
 
-  void decode_frames( TimestampedPESPacket & PES_packet /* mutable */ )
+  void decode_frames( TimestampedPESPacket & PES_packet /* mutable */,
+                      queue<AudioChunk> & decoded_samples )
   {
     while ( PES_packet.payload_length() ) {
       if ( PES_packet.payload_length() < 7 ) {
@@ -540,10 +557,28 @@ public:
       }
 
       /* decode all six blocks in the frame */
-      for ( unsigned int i = 0; i < 6; i++ ) {
+      for ( unsigned int block_id = 0; block_id < 6; block_id++ ) {
         if ( a52_block( decoder_.get() ) ) {
           throw InvalidMPEG( "a52_block returned error" );
         }
+
+        AudioChunk chunk;
+        chunk.presentation_time_stamp = PES_packet.presentation_time_stamp + block_id * 144000;
+        /* units -v '(256 / (48 kHz)) * (27 megahertz)' -> 144000 */
+
+        sample_t * next_sample = a52_samples( decoder_.get() );
+
+        for ( unsigned int i = 0; i < 256; i++ ) {
+          chunk.left[ i ] = static_cast<int16_t>( lround( check_sample( *next_sample ) ) );
+          next_sample++;
+        }
+
+        for ( unsigned int i = 0; i < 256; i++ ) {
+          chunk.right[ i ] = static_cast<int16_t>( lround( check_sample( *next_sample ) ) );
+          next_sample++;
+        }
+
+        decoded_samples.push( chunk );
       }
 
       /* get ready for next frame */
@@ -1001,10 +1036,10 @@ int main( int argc, char *argv[] )
 
     MPEG2VideoDecoder video_decoder { params };
     queue<VideoField> decoded_fields; /* output of MPEG2VideoDecoder */
-
     YUV4MPEGPipeOutput y4m_output { directory, frames_per_chunk, params };
 
     A52AudioDecoder audio_decoder;
+    queue<AudioChunk> decoded_samples; /* output of A52AudioDecoder */
 
     FileDescriptor output_ { STDOUT_FILENO };
     
@@ -1042,7 +1077,7 @@ int main( int argc, char *argv[] )
         try {
           TimestampedPESPacket PES_packet { move( audio_PES_packets.front() ) };
           audio_PES_packets.pop();
-          audio_decoder.decode_frames( PES_packet );
+          audio_decoder.decode_frames( PES_packet, decoded_samples );
         } catch ( const non_fatal_exception & e ) {
           print_exception( "audio decode", e );
         }
