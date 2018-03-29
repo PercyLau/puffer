@@ -89,6 +89,12 @@ public:
   using non_fatal_exception::non_fatal_exception;
 };
 
+class StreamMismatch : public non_fatal_exception
+{
+public:
+  using non_fatal_exception::non_fatal_exception;
+};
+
 struct FieldBuffer : public Raster
 {
   using Raster::Raster;
@@ -343,11 +349,11 @@ struct PESPacketHeader
   {
     if ( is_video ) {
       if ( (stream_id & 0xf0) != 0xe0 ) {
-        throw UnsupportedMPEG( "not an MPEG-2 video stream: " + to_string( stream_id ) );
+        throw StreamMismatch( "not an MPEG-2 video stream: " + to_string( stream_id ) );
       }
     } else {
       if ( stream_id != 0xBD ) {
-        throw UnsupportedMPEG( "not an A/52 audio stream: " + to_string( stream_id ) );
+        throw StreamMismatch( "not an A/52 audio stream: " + to_string( stream_id ) );
       }
     }
 
@@ -504,52 +510,52 @@ private:
   void enforce_as_expected( const mpeg2_sequence_t * sequence ) const
   {
     if ( not (sequence->flags & SEQ_FLAG_MPEG2) ) {
-      throw runtime_error( "sequence not flagged as MPEG-2 part 2 video" );
+      throw InvalidMPEG( "sequence not flagged as MPEG-2 part 2 video" );
     }
 
     if ( (sequence->flags & SEQ_FLAG_PROGRESSIVE_SEQUENCE) != (SEQ_FLAG_PROGRESSIVE_SEQUENCE * progressive_sequence_) ) {
-      throw runtime_error( "progressive/interlaced sequence mismatch" );
+      throw StreamMismatch( "progressive/interlaced sequence mismatch" );
     }
 
     if ( sequence->width != physical_luma_width() ) {
-      throw runtime_error( "width mismatch" );
+      throw StreamMismatch( "width mismatch" );
     }
 
     if ( sequence->height != physical_luma_height() ) {
-      throw runtime_error( "height mismatch" );
+      throw StreamMismatch( "height mismatch" );
     }
 
     if ( sequence->chroma_width != physical_luma_width() / 2 ) {
-      throw runtime_error( "chroma width mismatch" );
+      throw StreamMismatch( "chroma width mismatch" );
     }
 
     if ( sequence->chroma_height != physical_luma_height() / 2 ) {
-      throw runtime_error( "chroma height mismatch" );
+      throw StreamMismatch( "chroma height mismatch" );
     }
 
     if ( sequence->picture_width != display_width_ ) {
-      throw runtime_error( "picture width mismatch" );
+      throw StreamMismatch( "picture width mismatch" );
     }
 
     if ( sequence->picture_height != display_height_ ) {
-      throw runtime_error( "picture height mismatch" );
+      throw StreamMismatch( "picture height mismatch" );
     }
 
     if ( sequence->display_width != display_width_ ) {
-      throw runtime_error( "display width mismatch" );
+      throw StreamMismatch( "display width mismatch" );
     }
 
     if ( sequence->display_height != display_height_ ) {
-      throw runtime_error( "display height mismatch" );
+      throw StreamMismatch( "display height mismatch" );
     }
 
     if ( sequence->pixel_width != 1
          or sequence->pixel_height != 1 ) {
-      throw runtime_error( "non-square pels" );
+      throw UnsupportedMPEG( "non-square pels" );
     }
     
     if ( sequence->frame_period != frame_interval_ ) {
-      throw runtime_error( "frame interval mismatch" );
+      throw StreamMismatch( "frame interval mismatch" );
     }
   }
 
@@ -558,7 +564,7 @@ private:
                        queue<VideoField> & output )
   {
     if ( not (pic->flags & PIC_FLAG_TAGS) ) {
-      throw runtime_error( "picture without timestamp" );
+      throw UnsupportedMPEG( "picture without timestamp" );
     }
 
     if ( progressive_sequence_ ) {
