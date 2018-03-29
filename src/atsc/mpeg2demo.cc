@@ -920,6 +920,8 @@ int main( int argc, char *argv[] )
 
     YUV4MPEGPipeOutput y4m_output { directory, frames_per_chunk, params };
 
+    FileDescriptor output_ { STDOUT_FILENO };
+    
     while ( true ) {
       /* parse transport stream packets into video (and eventually audio) PES packets */
       const string chunk = stdin.read_exactly( ts_packet_length * packets_in_chunk );
@@ -949,6 +951,19 @@ int main( int argc, char *argv[] )
         }
       }
 
+      /* decode audio */
+      while ( not audio_PES_packets.empty() ) {
+        try {
+          TimestampedPESPacket PES_packet { move( audio_PES_packets.front() ) };
+          audio_PES_packets.pop();
+          unsigned int payload_len = PES_packet.payload_end() - PES_packet.payload_start();
+          string_view audio { reinterpret_cast<char *>( PES_packet.payload_start() ), payload_len };
+          output_.write( audio );
+        } catch ( const non_fatal_exception & e ) {
+          print_exception( "audio decode", e );
+        }
+      }
+      
       /* output fields? */
       while ( not decoded_fields.empty() ) {
         y4m_output.write( decoded_fields.front() );
