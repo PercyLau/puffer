@@ -293,17 +293,28 @@ struct TimestampedPESPacket
 {
   uint64_t presentation_time_stamp;
   size_t payload_start_index;
+  size_t payload_end_index;
   string PES_packet;
 
   TimestampedPESPacket( const uint64_t s_presentation_time_stamp,
                         const size_t s_payload_start_index,
+                        const size_t PES_packet_length,
                         string && s_PES_packet )
     : presentation_time_stamp( s_presentation_time_stamp ),
       payload_start_index( s_payload_start_index ),
+      payload_end_index( s_PES_packet.size() ),
       PES_packet( move( s_PES_packet ) )
   {
     if ( payload_start_index >= PES_packet.size() ) {
       throw InvalidMPEG( "empty PES payload" );
+    }
+
+    if ( PES_packet_length != 0 ) {
+      if ( PES_packet_length + 6 > PES_packet.size() ) {
+        throw InvalidMPEG( "PES_packet_length + 6 > PES_packet.size()" );
+      }
+
+      payload_end_index = PES_packet_length + 6;
     }
   }
 
@@ -312,9 +323,9 @@ struct TimestampedPESPacket
     return reinterpret_cast<uint8_t *>( PES_packet.data() + payload_start_index );
   }
 
-  uint8_t * payload_end() /* XXX for audio, need smarter end logic */
+  uint8_t * payload_end()
   {
-    return reinterpret_cast<uint8_t *>( PES_packet.data() + PES_packet.size() );
+    return reinterpret_cast<uint8_t *>( PES_packet.data() + payload_end_index );
   }
 };
 
@@ -322,23 +333,31 @@ struct PESPacketHeader
 {
   uint8_t stream_id;
   unsigned int payload_start;
+  unsigned int PES_packet_length;
   bool data_alignment_indicator;
   uint8_t PTS_DTS_flags;
   uint64_t presentation_time_stamp;
   uint64_t decoding_time_stamp;
 
-  static uint8_t enforce_is_video( const uint8_t stream_id )
+  static uint8_t enforce_stream_id( const bool is_video, const uint8_t stream_id )
   {
-    if ( (stream_id & 0xf0) != 0xe0 ) {
-      throw UnsupportedMPEG( "not an MPEG-2 video stream" );
+    if ( is_video ) {
+      if ( (stream_id & 0xf0) != 0xe0 ) {
+        throw UnsupportedMPEG( "not an MPEG-2 video stream: " + to_string( stream_id ) );
+      }
+    } else {
+      if ( stream_id != 0xBD ) {
+        throw UnsupportedMPEG( "not an A/52 audio stream: " + to_string( stream_id ) );
+      }
     }
 
     return stream_id;
   }
 
-  PESPacketHeader( const string_view & packet )
-    : stream_id( enforce_is_video( packet.at( 3 ) ) ),
+  PESPacketHeader( const string_view & packet, const bool is_video )
+    : stream_id( enforce_stream_id( is_video, packet.at( 3 ) ) ),
       payload_start( packet.at( 8 ) + 1 ),
+      PES_packet_length( (packet.at( 4 ) << 8) | packet.at( 5 ) ),
       data_alignment_indicator( packet.at( 6 ) & 0x04 ),
       PTS_DTS_flags( (packet.at( 7 ) & 0xc0) >> 6 ),
       presentation_time_stamp(),
@@ -645,7 +664,8 @@ class TSParser
 {
 private:
   unsigned int pid_; /* program ID of interest */
-
+  bool is_video_; /* true = video, false = audio */
+  
   string PES_packet_ {};
 
   void append_payload( const string_view & packet, const TSPacketHeader & header )
@@ -655,8 +675,9 @@ private:
   }
 
 public:
-  TSParser( const unsigned int pid )
-    : pid_( pid )
+  TSParser( const unsigned int pid, const bool is_video )
+    : pid_( pid ),
+      is_video_( is_video )
   {
     if ( pid >= (1 << 13) ) {
       throw runtime_error( "program ID must be less than " + to_string( 1 << 13 ) );
@@ -676,10 +697,11 @@ public:
 
       /* step 1: parse and decode old PES packet if there is one */
       if ( not PES_packet_.empty() ) {
-        PESPacketHeader pes_header { PES_packet_ };
-
+        PESPacketHeader pes_header { PES_packet_, is_video_ };
+        
         video_PES_packets.emplace( pes_header.presentation_time_stamp,
                                    pes_header.payload_start,
+                                   pes_header.PES_packet_length,
                                    move( PES_packet_ ) );
         PES_packet_.clear();
       }
@@ -874,21 +896,24 @@ int main( int argc, char *argv[] )
       abort();
     }
 
-    if ( argc != 5 ) {
-      cerr << "Usage: " << argv[ 0 ] << " pid format frames_per_chunk target_directory\n\n   format = \"1080i30\" | \"720p60\"\n";
+    if ( argc != 6 ) {
+      cerr << "Usage: " << argv[ 0 ] << " video_pid audio_pid format frames_per_chunk target_directory\n\n   format = \"1080i30\" | \"720p60\"\n";
       return EXIT_FAILURE;
     }
 
     /* NB: "1080i30" is the preferred notation in Poynton's books and "Video Demystified" */
-    const unsigned int pid = stoi( argv[ 1 ] );
-    const VideoParameters params { argv[ 2 ] };
-    const unsigned int frames_per_chunk = atoi( argv[ 3 ] );
-    const string directory = argv[ 4 ];
+    const unsigned int video_pid = stoi( argv[ 1 ] );
+    const unsigned int audio_pid = stoi( argv[ 2 ] );
+    const VideoParameters params { argv[ 3 ] };
+    const unsigned int frames_per_chunk = atoi( argv[ 4 ] );
+    const string directory = argv[ 5 ];
     
     FileDescriptor stdin { 0 };
 
-    TSParser parser { pid };
+    TSParser video_parser { video_pid, true };
+    TSParser audio_parser { audio_pid, false };
     queue<TimestampedPESPacket> video_PES_packets; /* output of TSParser */
+    queue<TimestampedPESPacket> audio_PES_packets; /* output of TSParser */
 
     MPEG2VideoDecoder video_decoder { params };
     queue<VideoField> decoded_fields; /* output of MPEG2VideoDecoder */
@@ -897,17 +922,20 @@ int main( int argc, char *argv[] )
 
     while ( true ) {
       /* parse transport stream packets into video (and eventually audio) PES packets */
-      try {
-        const string chunk = stdin.read_exactly( ts_packet_length * packets_in_chunk );
-        const string_view chunk_view { chunk };
+      const string chunk = stdin.read_exactly( ts_packet_length * packets_in_chunk );
+      const string_view chunk_view { chunk };
 
-        for ( unsigned packet_no = 0; packet_no < packets_in_chunk; packet_no++ ) {
-          parser.parse( chunk_view.substr( packet_no * ts_packet_length,
-                                           ts_packet_length ),
-                        video_PES_packets );
+      for ( unsigned packet_no = 0; packet_no < packets_in_chunk; packet_no++ ) {
+        try {
+          video_parser.parse( chunk_view.substr( packet_no * ts_packet_length,
+                                                 ts_packet_length ),
+                              video_PES_packets );
+          audio_parser.parse( chunk_view.substr( packet_no * ts_packet_length,
+                                                 ts_packet_length ),
+                              audio_PES_packets );
+        } catch ( const non_fatal_exception & e ) {
+          print_exception( "transport stream input", e );
         }
-      } catch ( const non_fatal_exception & e ) {
-        print_exception( "transport stream input", e );
       }
 
       /* decode video */
