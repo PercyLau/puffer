@@ -552,8 +552,8 @@ public:
         throw InvalidMPEG( "a52_frame returned error" );
       }
 
-      if ( flags != A52_STEREO ) {
-        throw InvalidMPEG( "could not downmix to stereo" );
+      if ( flags != A52_STEREO and flags != A52_DOLBY ) {
+        throw InvalidMPEG( "could not downmix to stereo: flags = " + to_string( flags ) );
       }
 
       /* decode all six blocks in the frame */
@@ -626,7 +626,7 @@ private:
       throw InvalidMPEG( "sequence not flagged as MPEG-2 part 2 video" );
     }
 
-    if ( (sequence->flags & SEQ_FLAG_PROGRESSIVE_SEQUENCE) != (SEQ_FLAG_PROGRESSIVE_SEQUENCE * progressive_sequence_) ) {
+    if ( (sequence->flags & SEQ_FLAG_PROGRESSIVE_SEQUENCE) != (progressive_sequence_ ? SEQ_FLAG_PROGRESSIVE_SEQUENCE : 0) ) {
       throw StreamMismatch( "progressive/interlaced sequence mismatch" );
     }
 
@@ -926,13 +926,16 @@ public:
     }
     
     if ( expected_inner_timestamp_.has_value() ) {
-      const int64_t diff = abs( int64_t( expected_inner_timestamp_.value() ) - int64_t( field.presentation_time_stamp ) );
       if ( timestamp_difference( expected_inner_timestamp_.value(),
                                  field.presentation_time_stamp )
            > 5 * frame_interval_ / 8 ) {
+        const int64_t diff = timestamp_difference( expected_inner_timestamp_.value(),
+                                                   field.presentation_time_stamp );
+        
         cerr << "Warning, diff = " << diff << " (" << diff / double( frame_interval_ ) << " frames): ";
         cerr << "expected time stamp of " << expected_inner_timestamp_.value() << " but got " << field.presentation_time_stamp << "\n";
         if ( field.presentation_time_stamp < expected_inner_timestamp_.value() ) {
+          cerr << "Warning, ignoring field whose timestamp has already passed\n";
           if ( diff > frame_interval_ * 60 * 60 ) {
             throw runtime_error( "BUG: huge negative difference (need to reinitialize inner timestamp)" );
             return;
@@ -941,7 +944,9 @@ public:
           while ( timestamp_difference( expected_inner_timestamp_.value(),
                                         field.presentation_time_stamp )
                   > 5 * frame_interval_ / 8 ) {
-            cerr << "Generating replacement fields to fill in gap.\n";
+            cerr << "Generating replacement field to fill in gap (diff now "
+                 << timestamp_difference( expected_inner_timestamp_.value(),
+                                          field.presentation_time_stamp ) / double( frame_interval_ ) << " frames)\n";
 
             /* first field */
             missing_field_.presentation_time_stamp = expected_inner_timestamp_.value();
