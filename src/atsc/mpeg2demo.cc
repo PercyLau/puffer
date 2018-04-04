@@ -44,14 +44,14 @@ inline T * notnull( const string & context, T * const x )
   return x ? x : throw runtime_error( context + ": returned null pointer" );
 }
 
-uint64_t timestamp_difference( const uint64_t ts_64, const uint64_t ts_33 )
+int64_t timestamp_difference( const uint64_t ts_64, const uint64_t ts_33 )
 {
   const uint64_t second_ts_unwrapped = (ts_64 & 0xffffffff80000000) | (ts_33 & 0x000000007fffffff);
 
   const int64_t first_ts_signed = ts_64;
   const int64_t second_ts_signed = second_ts_unwrapped;
 
-  return abs( first_ts_signed - second_ts_signed );
+  return first_ts_signed - second_ts_signed;
 }
 
 struct Raster
@@ -965,69 +965,70 @@ class VideoOutput
 {
 private:
   unsigned int frame_interval_;
-  optional<uint64_t> expected_inner_timestamp_ {};
+  uint64_t expected_inner_timestamp_;
 
   VideoField missing_field_;
 
   void write_single_field( const VideoField & field, DiskWriter & writer )
   {
     writer.write_raw( field );
-    expected_inner_timestamp_.value() += frame_interval_ / 2;    
+    expected_inner_timestamp_ += frame_interval_ / 2;    
   }
   
 public:
-  VideoOutput( const VideoParameters & params )
+  VideoOutput( const VideoParameters & params, const uint64_t initial_inner_timestamp )
     : frame_interval_( params.frame_interval ),
+      expected_inner_timestamp_( initial_inner_timestamp ),
       missing_field_( 0, false, params.width, params.height )
-  {}
+  {
+    cerr << "VideoOutput: constructed with initial timestamp = " << initial_inner_timestamp << "\n";
+  }
   
   void write( const VideoField & field, DiskWriter & writer )
   {
+    /*
+    cerr << "New field, expected ts = " << expected_inner_timestamp_
+         << ", got " << field.presentation_time_stamp << " -> timestamp_difference = "
+         << timestamp_difference( expected_inner_timestamp_, field.presentation_time_stamp ) << "\n";
+    */
+
     if ( field.top_field != writer.next_field_is_top() ) {
       cerr << "ignoring field with mismatched cadence\n";
       return;
     }
-    
-    if ( expected_inner_timestamp_.has_value() ) {
-      if ( timestamp_difference( expected_inner_timestamp_.value(),
-                                 field.presentation_time_stamp )
-           > 5 * frame_interval_ / 8 ) {
-        const int64_t diff = timestamp_difference( expected_inner_timestamp_.value(),
-                                                   field.presentation_time_stamp );
-        
-        cerr << "Warning, diff = " << diff << " (" << diff / double( frame_interval_ ) << " frames): ";
-        cerr << "expected time stamp of " << expected_inner_timestamp_.value() << " but got " << field.presentation_time_stamp << "\n";
-        if ( field.presentation_time_stamp < expected_inner_timestamp_.value() ) {
-          cerr << "Warning, ignoring field whose timestamp has already passed\n";
-          if ( diff > frame_interval_ * 60 * 60 ) {
-            throw runtime_error( "BUG: huge negative difference (need to reinitialize inner timestamp)" );
-            return;
-          }
-        } else {
-          while ( timestamp_difference( expected_inner_timestamp_.value(),
-                                        field.presentation_time_stamp )
-                  > 5 * frame_interval_ / 8 ) {
-            cerr << "Generating replacement field to fill in gap (diff now "
-                 << timestamp_difference( expected_inner_timestamp_.value(),
-                                          field.presentation_time_stamp ) / double( frame_interval_ ) << " frames)\n";
 
-            /* first field */
-            missing_field_.presentation_time_stamp = expected_inner_timestamp_.value();
-            missing_field_.top_field = writer.next_field_is_top();
-            write_single_field( missing_field_, writer );
+    const int64_t diff = timestamp_difference( expected_inner_timestamp_,
+                                               field.presentation_time_stamp );
 
-            /* second field */
-            missing_field_.presentation_time_stamp = expected_inner_timestamp_.value();
-            missing_field_.top_field = writer.next_field_is_top();
-            write_single_field( missing_field_, writer );
-          }
-        }
+    /* field's moment has passed -> ignore (or bomb out) */
+    if ( diff > 0 ) {
+      cerr << "Warning, ignoring field whose timestamp has already passed (diff = " << diff / double( frame_interval_ ) << " frames).\n";
+      if ( abs( diff ) > frame_interval_ * 60 * 60 ) {
+        throw runtime_error( "BUG: huge negative difference (need to reinitialize inner timestamp)" );
       }
-     } else {
-      expected_inner_timestamp_ = field.presentation_time_stamp;
-      cerr << "initializing expected inner timestamp = " << expected_inner_timestamp_.value() << "\n";
+      return;
     }
 
+    /* field's moment is in the future -> insert filler fields */
+    while ( timestamp_difference( expected_inner_timestamp_,
+                                  field.presentation_time_stamp )
+            < -5 * int64_t( frame_interval_ ) / 8 ) {
+      cerr << "Generating replacement fields to fill in gap (diff now "
+           << timestamp_difference( expected_inner_timestamp_,
+                                    field.presentation_time_stamp ) / double( frame_interval_ ) << " frames)\n";
+
+      /* first field */
+      missing_field_.presentation_time_stamp = expected_inner_timestamp_;
+      missing_field_.top_field = writer.next_field_is_top();
+      write_single_field( missing_field_, writer );
+
+      /* second field */
+      missing_field_.presentation_time_stamp = expected_inner_timestamp_;
+      missing_field_.top_field = writer.next_field_is_top();
+      write_single_field( missing_field_, writer );
+    }
+
+    /* write the originally requested field */
     write_single_field( field, writer );
   }
 };
@@ -1061,7 +1062,9 @@ int main( int argc, char *argv[] )
     MPEG2VideoDecoder video_decoder { params };
     queue<VideoField> decoded_fields; /* output of MPEG2VideoDecoder */
     DiskWriter  y4m_writer   { directory, frames_per_chunk, params };
-    VideoOutput video_output { params };
+
+    bool outputs_initialized = false;
+    optional<VideoOutput> video_output;
 
     A52AudioDecoder audio_decoder;
     queue<AudioChunk> decoded_samples; /* output of A52AudioDecoder */
@@ -1108,9 +1111,14 @@ int main( int argc, char *argv[] )
         }
       }
       
+
       /* output fields? */
       while ( not decoded_fields.empty() ) {
-        video_output.write( decoded_fields.front(), y4m_writer );
+        if ( not outputs_initialized ) {
+          video_output.emplace( params, decoded_fields.front().presentation_time_stamp );
+          outputs_initialized = true;
+        }
+        video_output.value().write( decoded_fields.front(), y4m_writer );
         decoded_fields.pop();
       }
     }
