@@ -37,6 +37,7 @@ using namespace std;
 const size_t ts_packet_length = 188;
 const char ts_packet_sync_byte = 0x47;
 const size_t packets_in_chunk = 512;
+const unsigned int atsc_audio_sample_rate = 48000;
 
 template <typename T>
 inline T * notnull( const string & context, T * const x )
@@ -492,7 +493,7 @@ struct VideoParameters
   }
 };
 
-struct AudioChunk
+struct AudioBlock
 {
   uint64_t presentation_time_stamp;
   int16_t left[ 256 ], right[ 256 ];
@@ -526,7 +527,7 @@ public:
   {}
 
   void decode_frames( TimestampedPESPacket & PES_packet /* mutable */,
-                      queue<AudioChunk> & decoded_samples )
+                      queue<AudioBlock> & decoded_samples )
   {
     while ( PES_packet.payload_length() ) {
       if ( PES_packet.payload_length() < 7 ) {
@@ -540,7 +541,7 @@ public:
         throw InvalidMPEG( "invalid A/52 frame" );
       }
 
-      if ( sample_rate != 48000 ) {
+      if ( sample_rate != atsc_audio_sample_rate ) {
         throw UnsupportedMPEG( "unsupported sample_rate of " + to_string( sample_rate ) + " Hz" );
       }
 
@@ -562,7 +563,7 @@ public:
           throw InvalidMPEG( "a52_block returned error" );
         }
 
-        AudioChunk chunk;
+        AudioBlock chunk;
         chunk.presentation_time_stamp = PES_packet.presentation_time_stamp + block_id * 144000;
         /* units -v '(256 / (48 kHz)) * (27 megahertz)' -> 144000 */
 
@@ -834,7 +835,7 @@ public:
   }
 };
 
-class DiskWriter
+class Y4M_Writer
 {
 private:
   bool next_field_is_top_ { true };
@@ -900,7 +901,7 @@ private:
   }
 
 public:
-  DiskWriter( const string directory,
+  Y4M_Writer( const string directory,
               const unsigned int frames_per_chunk,
               const VideoParameters & params )
     : pending_chunk_(),
@@ -969,7 +970,7 @@ private:
 
   VideoField missing_field_;
 
-  void write_single_field( const VideoField & field, DiskWriter & writer )
+  void write_single_field( const VideoField & field, Y4M_Writer & writer )
   {
     writer.write_raw( field );
     expected_inner_timestamp_ += frame_interval_ / 2;    
@@ -984,7 +985,7 @@ public:
     cerr << "VideoOutput: constructed with initial timestamp = " << initial_inner_timestamp << "\n";
   }
   
-  void write( const VideoField & field, DiskWriter & writer )
+  void write( const VideoField & field, Y4M_Writer & writer )
   {
     /*
     cerr << "New field, expected ts = " << expected_inner_timestamp_
@@ -1033,6 +1034,45 @@ public:
   }
 };
 
+class WavWriter
+{
+private:
+  unsigned int pending_chunk_outer_timestamp_ {};
+  unsigned int pending_chunk_index_ {};
+  vector<AudioBlock> pending_chunk_;
+
+  string directory_;
+  string wav_header_;
+
+  unsigned int outer_timestamp_ {};
+  
+public:
+  WavWriter( const string directory,
+             const unsigned int audio_blocks_per_chunk )
+    : pending_chunk_(),
+      directory_( directory ),
+      wav_header_( "HELLO XXX" )
+  {
+    for ( unsigned int i = 0; i < audio_blocks_per_chunk; i++ ) {
+      pending_chunk_.emplace_back();
+    }
+  }
+};
+
+class AudioOutput
+{
+private:
+  uint64_t expected_inner_timestamp_;
+  
+public:
+  AudioOutput( const uint64_t initial_inner_timestamp )
+    : expected_inner_timestamp_( initial_inner_timestamp )
+  {}
+
+  void write( const AudioBlock & , WavWriter &  )
+  {}
+};
+
 int main( int argc, char *argv[] )
 {
   try {
@@ -1040,8 +1080,8 @@ int main( int argc, char *argv[] )
       abort();
     }
 
-    if ( argc != 6 ) {
-      cerr << "Usage: " << argv[ 0 ] << " video_pid audio_pid format frames_per_chunk target_directory\n\n   format = \"1080i30\" | \"720p60\"\n";
+    if ( argc != 7 ) {
+      cerr << "Usage: " << argv[ 0 ] << " video_pid audio_pid format frames_per_chunk audio_blocks_per_chunk target_directory\n\n   format = \"1080i30\" | \"720p60\"\n";
       return EXIT_FAILURE;
     }
 
@@ -1050,7 +1090,8 @@ int main( int argc, char *argv[] )
     const unsigned int audio_pid = stoi( argv[ 2 ] );
     const VideoParameters params { argv[ 3 ] };
     const unsigned int frames_per_chunk = atoi( argv[ 4 ] );
-    const string directory = argv[ 5 ];
+    const unsigned int audio_blocks_per_chunk = atoi( argv[ 5 ] );
+    const string directory = argv[ 6 ];
     
     FileDescriptor stdin { 0 };
 
@@ -1061,13 +1102,15 @@ int main( int argc, char *argv[] )
 
     MPEG2VideoDecoder video_decoder { params };
     queue<VideoField> decoded_fields; /* output of MPEG2VideoDecoder */
-    DiskWriter  y4m_writer   { directory, frames_per_chunk, params };
+    Y4M_Writer y4m_writer { directory, frames_per_chunk, params };
+
+    A52AudioDecoder audio_decoder;
+    queue<AudioBlock> decoded_samples; /* output of A52AudioDecoder */
+    WavWriter wav_writer { directory, audio_blocks_per_chunk };
 
     bool outputs_initialized = false;
     optional<VideoOutput> video_output;
-
-    A52AudioDecoder audio_decoder;
-    queue<AudioChunk> decoded_samples; /* output of A52AudioDecoder */
+    optional<AudioOutput> audio_output;
 
     FileDescriptor output_ { STDOUT_FILENO };
     
@@ -1110,16 +1153,25 @@ int main( int argc, char *argv[] )
           print_exception( "audio decode", e );
         }
       }
-      
 
       /* output fields? */
       while ( not decoded_fields.empty() ) {
+        /* initialize audio and video outputs with earliest video field as first timestamp */
         if ( not outputs_initialized ) {
           video_output.emplace( params, decoded_fields.front().presentation_time_stamp );
+          audio_output.emplace( decoded_fields.front().presentation_time_stamp);
           outputs_initialized = true;
         }
         video_output.value().write( decoded_fields.front(), y4m_writer );
         decoded_fields.pop();
+      }
+
+      /* output audio? */
+      if ( outputs_initialized ) {
+        while ( not decoded_samples.empty() ) {
+          audio_output.value().write( decoded_samples.front(), wav_writer );
+          decoded_samples.pop();
+        }
       }
     }
   } catch ( const exception & e ) {
