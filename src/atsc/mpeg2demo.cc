@@ -834,7 +834,7 @@ public:
   }
 };
 
-class YUV4MPEGPipeOutput
+class DiskWriter
 {
 private:
   bool next_field_is_top_ { true };
@@ -844,13 +844,11 @@ private:
   vector<Raster> pending_chunk_;
 
   unsigned int frame_interval_;
-  optional<uint64_t> expected_inner_timestamp_ {};
-  unsigned int outer_timestamp_ {};
-
-  VideoField missing_field_;
-
+  
   string directory_;
   string y4m_header_;
+
+  unsigned int outer_timestamp_ {};
   
   Raster & pending_frame()
   {
@@ -902,12 +900,11 @@ private:
   }
 
 public:
-  YUV4MPEGPipeOutput( const string directory,
-                      const unsigned int frames_per_chunk,
-                      const VideoParameters & params )
+  DiskWriter( const string directory,
+              const unsigned int frames_per_chunk,
+              const VideoParameters & params )
     : pending_chunk_(),
       frame_interval_( params.frame_interval ),
-      missing_field_( 0, false, params.width, params.height ),
       directory_( directory ),
       y4m_header_( "YUV4MPEG2 W" + to_string( params.width )
                    + " H" + to_string( params.height ) + " " + params.y4m_description
@@ -918,62 +915,8 @@ public:
     }
   }
 
-  void write( const VideoField & field )
-  {
-    if ( field.top_field != next_field_is_top_ ) {
-      cerr << "ignoring field with mismatched cadence\n";
-      return;
-    }
-    
-    if ( expected_inner_timestamp_.has_value() ) {
-      if ( timestamp_difference( expected_inner_timestamp_.value(),
-                                 field.presentation_time_stamp )
-           > 5 * frame_interval_ / 8 ) {
-        const int64_t diff = timestamp_difference( expected_inner_timestamp_.value(),
-                                                   field.presentation_time_stamp );
-        
-        cerr << "Warning, diff = " << diff << " (" << diff / double( frame_interval_ ) << " frames): ";
-        cerr << "expected time stamp of " << expected_inner_timestamp_.value() << " but got " << field.presentation_time_stamp << "\n";
-        if ( field.presentation_time_stamp < expected_inner_timestamp_.value() ) {
-          cerr << "Warning, ignoring field whose timestamp has already passed\n";
-          if ( diff > frame_interval_ * 60 * 60 ) {
-            throw runtime_error( "BUG: huge negative difference (need to reinitialize inner timestamp)" );
-            return;
-          }
-        } else {
-          while ( timestamp_difference( expected_inner_timestamp_.value(),
-                                        field.presentation_time_stamp )
-                  > 5 * frame_interval_ / 8 ) {
-            cerr << "Generating replacement field to fill in gap (diff now "
-                 << timestamp_difference( expected_inner_timestamp_.value(),
-                                          field.presentation_time_stamp ) / double( frame_interval_ ) << " frames)\n";
-
-            /* first field */
-            missing_field_.presentation_time_stamp = expected_inner_timestamp_.value();
-            missing_field_.top_field = next_field_is_top_;
-            write_single_field( missing_field_ );
-
-            /* second field */
-            missing_field_.presentation_time_stamp = expected_inner_timestamp_.value();
-            missing_field_.top_field = next_field_is_top_;
-            write_single_field( missing_field_ );
-          }
-        }
-      }
-     } else {
-      expected_inner_timestamp_ = field.presentation_time_stamp;
-      cerr << "initializing expected inner timestamp = " << expected_inner_timestamp_.value() << "\n";
-    }
-
-    write_single_field( field );
-  }
-
-  void write_single_field( const VideoField & field )
-  {
-    write_raw( field );
-    expected_inner_timestamp_.value() += frame_interval_ / 2;    
-  }
-    
+  bool next_field_is_top() const { return next_field_is_top_; }
+  
   void write_raw( const VideoField & field )
   {
     if ( field.top_field != next_field_is_top_ ) {
@@ -1018,6 +961,77 @@ public:
   }
 };
 
+class VideoOutput
+{
+private:
+  unsigned int frame_interval_;
+  optional<uint64_t> expected_inner_timestamp_ {};
+
+  VideoField missing_field_;
+
+  void write_single_field( const VideoField & field, DiskWriter & writer )
+  {
+    writer.write_raw( field );
+    expected_inner_timestamp_.value() += frame_interval_ / 2;    
+  }
+  
+public:
+  VideoOutput( const VideoParameters & params )
+    : frame_interval_( params.frame_interval ),
+      missing_field_( 0, false, params.width, params.height )
+  {}
+  
+  void write( const VideoField & field, DiskWriter & writer )
+  {
+    if ( field.top_field != writer.next_field_is_top() ) {
+      cerr << "ignoring field with mismatched cadence\n";
+      return;
+    }
+    
+    if ( expected_inner_timestamp_.has_value() ) {
+      if ( timestamp_difference( expected_inner_timestamp_.value(),
+                                 field.presentation_time_stamp )
+           > 5 * frame_interval_ / 8 ) {
+        const int64_t diff = timestamp_difference( expected_inner_timestamp_.value(),
+                                                   field.presentation_time_stamp );
+        
+        cerr << "Warning, diff = " << diff << " (" << diff / double( frame_interval_ ) << " frames): ";
+        cerr << "expected time stamp of " << expected_inner_timestamp_.value() << " but got " << field.presentation_time_stamp << "\n";
+        if ( field.presentation_time_stamp < expected_inner_timestamp_.value() ) {
+          cerr << "Warning, ignoring field whose timestamp has already passed\n";
+          if ( diff > frame_interval_ * 60 * 60 ) {
+            throw runtime_error( "BUG: huge negative difference (need to reinitialize inner timestamp)" );
+            return;
+          }
+        } else {
+          while ( timestamp_difference( expected_inner_timestamp_.value(),
+                                        field.presentation_time_stamp )
+                  > 5 * frame_interval_ / 8 ) {
+            cerr << "Generating replacement field to fill in gap (diff now "
+                 << timestamp_difference( expected_inner_timestamp_.value(),
+                                          field.presentation_time_stamp ) / double( frame_interval_ ) << " frames)\n";
+
+            /* first field */
+            missing_field_.presentation_time_stamp = expected_inner_timestamp_.value();
+            missing_field_.top_field = writer.next_field_is_top();
+            write_single_field( missing_field_, writer );
+
+            /* second field */
+            missing_field_.presentation_time_stamp = expected_inner_timestamp_.value();
+            missing_field_.top_field = writer.next_field_is_top();
+            write_single_field( missing_field_, writer );
+          }
+        }
+      }
+     } else {
+      expected_inner_timestamp_ = field.presentation_time_stamp;
+      cerr << "initializing expected inner timestamp = " << expected_inner_timestamp_.value() << "\n";
+    }
+
+    write_single_field( field, writer );
+  }
+};
+
 int main( int argc, char *argv[] )
 {
   try {
@@ -1046,7 +1060,8 @@ int main( int argc, char *argv[] )
 
     MPEG2VideoDecoder video_decoder { params };
     queue<VideoField> decoded_fields; /* output of MPEG2VideoDecoder */
-    YUV4MPEGPipeOutput y4m_output { directory, frames_per_chunk, params };
+    DiskWriter  y4m_writer   { directory, frames_per_chunk, params };
+    VideoOutput video_output { params };
 
     A52AudioDecoder audio_decoder;
     queue<AudioChunk> decoded_samples; /* output of A52AudioDecoder */
@@ -1095,7 +1110,7 @@ int main( int argc, char *argv[] )
       
       /* output fields? */
       while ( not decoded_fields.empty() ) {
-        y4m_output.write( decoded_fields.front() );
+        video_output.write( decoded_fields.front(), y4m_writer );
         decoded_fields.pop();
       }
     }
