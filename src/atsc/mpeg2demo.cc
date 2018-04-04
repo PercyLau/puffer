@@ -951,12 +951,12 @@ public:
             /* first field */
             missing_field_.presentation_time_stamp = expected_inner_timestamp_.value();
             missing_field_.top_field = next_field_is_top_;
-            write_raw( missing_field_ );
+            write_single_field( missing_field_ );
 
             /* second field */
             missing_field_.presentation_time_stamp = expected_inner_timestamp_.value();
             missing_field_.top_field = next_field_is_top_;
-            write_raw( missing_field_ );
+            write_single_field( missing_field_ );
           }
         }
       }
@@ -965,9 +965,15 @@ public:
       cerr << "initializing expected inner timestamp = " << expected_inner_timestamp_.value() << "\n";
     }
 
-    write_raw( field );
+    write_single_field( field );
   }
 
+  void write_single_field( const VideoField & field )
+  {
+    write_raw( field );
+    expected_inner_timestamp_.value() += frame_interval_ / 2;    
+  }
+    
   void write_raw( const VideoField & field )
   {
     if ( field.top_field != next_field_is_top_ ) {
@@ -1004,7 +1010,6 @@ public:
     }
 
     next_field_is_top_ = !next_field_is_top_;
-    expected_inner_timestamp_.value() += frame_interval_ / 2;
 
     if ( next_field_is_top_ ) {
       /* print out frame */
