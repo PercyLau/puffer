@@ -75,13 +75,13 @@ function setup_control_bar() {
       video.volume = last_volume_before_mute;
       volume_bar.value = video.volume;
       mute_button.muted = false;
-      mute_button.style.backgroundImage = "url(static/images/volume_on.svg)";
+      mute_button.style.backgroundImage = "url(images/volume_on.svg)";
     } else {
       mute_button.muted = true;
       last_volume_before_mute = video.volume;
       video.volume = 0;
       volume_bar.value = 0;
-      mute_button.style.backgroundImage = "url(static/images/volume_off.svg)";
+      mute_button.style.backgroundImage = "url(images/volume_off.svg)";
     }
   };
 
@@ -89,10 +89,10 @@ function setup_control_bar() {
   volume_bar.onchange = function() {
     video.volume = volume_bar.value;
     if (video.volume > 0) {
-      mute_button.style.backgroundImage = "url(static/images/volume_on.svg)";
+      mute_button.style.backgroundImage = "url(images/volume_on.svg)";
       mute_button.muted = false;
     } else {
-      mute_button.style.backgroundImage = "url(static/images/volume_off.svg)";
+      mute_button.style.backgroundImage = "url(images/volume_off.svg)";
       mute_button.muted = true;
     }
   };
