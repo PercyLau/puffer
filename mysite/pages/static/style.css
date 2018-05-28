@@ -1,0 +1,131 @@
+.hidden {
+  display: none;
+}
+
+#tv-container {
+  width: 48vw;
+  height: 27vw;
+  max-width: 64vw;
+  max-height: 36vw;
+  position: relative;
+  margin: 0;
+  background-color: #000000;
+}
+
+#tv-player {
+  width: 100%;
+  height: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  display: block;
+}
+
+#tv-player::-webkit-media-controls {
+  display:none !important;
+}
+
+#tv-controls {
+  position: absolute;
+  height: 25px;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 5px;
+  opacity: 0;
+  background-color: #FFFFFF;
+}
+
+#tv-container:hover #tv-controls {
+  opacity: 0.8;
+}
+
+#mute-button {
+  background-image: url(/images/volume_on.svg);
+  background-size: 25px;
+  width: 25px;
+  height: 25px;
+  border: 0;
+  background-color: #FFFFFF;
+  position: absolute;
+  left: 5px;
+  padding: 5px;
+  opacity: 0.8;
+}
+
+#mute-button:hover {
+  opacity: 1;
+}
+
+#volume-bar {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100px;
+  height: 10px;
+  border-radius: 5px;
+  background: #AAAAAA;
+  outline: none;
+  -webkit-transition: .2s;
+  transition: opacity .2s;
+  position: relative;
+  left: 30px;
+  opacity: 0.8;
+}
+
+#volume-bar:hover {
+  opacity: 1;
+}
+
+#volume-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: #000000;
+  cursor: pointer;
+}
+
+#volume-bar::-moz-range-thumb {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: #000000;
+  cursor: pointer;
+}
+
+#channel-select {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 60px;
+  height: 25px;
+  border-radius: 5px;
+  background: #AAAAAA;
+  outline: none;
+  text-align-last:center;
+  -webkit-transition: .2s;
+  transition: opacity .2s;
+  position: relative;
+  left: 30px;
+  opacity: 0.8;
+}
+
+#channel-select:hover {
+  opacity: 1;
+}
+
+#full-screen-button {
+  background-image: url(/images/full_screen_button.svg);
+  background-size: 25px;
+  width: 25px;
+  height: 25px;
+  border: 0;
+  background-color: #FFFFFF;
+  position: absolute;
+  right: 5px;
+  padding: 5px;
+  opacity: 0.8;
+}
+
+#full-screen-button:hover {
+  opacity: 1;
+}
