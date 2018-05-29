@@ -7,8 +7,6 @@
 <head>
   <meta charset="utf-8">
   <title>Puffer</title>
-  <script src="https://www.gstatic.com/firebasejs/4.12.1/firebase.js"></script>
-  <script src="{% static 'config.js' %}"></script>
   <link rel="stylesheet" href="{% static 'style.css' %}">
 </head>
 
@@ -16,11 +14,6 @@
   <h1>Puffer</h1>
   <li>User: {{ user.get_username }}</li>
   <li><a href="{% url 'logout'%}">Logout</a></li>
-
-  <!--Display when user is signed in--!>
-  <div id="user-signed-in" class="hidden">
-    <div id="user-info"></div>
-    <button id="sign-out">Sign Out</button>
 
     <div id="tv-container">
       <video id="tv-player" autoplay mediagroup="tv"></video>
@@ -35,7 +28,6 @@
         <button type="button" id="full-screen-button"></button>
       </div>
     </div>
-  </div>
 
   <script src="{% static 'player.js' %}"></script>
 </body>

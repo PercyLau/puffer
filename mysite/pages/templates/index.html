@@ -7,22 +7,17 @@
     <head>
       <meta charset="utf-8">
       <title>Puffer</title>
-      <script src="https://www.gstatic.com/firebasejs/4.12.1/firebase.js"></script>
-      <script src="{% static 'config.js' %}"></script>
       <link rel="stylesheet" href="{% static 'style.css' %}">
     </head>
 
     <body>
-      <li>User: {{ user.get_username }}</li>
-      <li><a href="{% url 'logout'%}">Logout</a></li>
       <h1>Puffer</h1>
+      <h3>Hello {{ user.get_username }}, Welcome to Puffer!</h3>
+      <a>Not {{ user.get_username }}? </a><a href="{% url 'logout'%}">Logout</a>
+      <br>
+      <br>
 
-      <!--Display when user is signed in--!>
-      <div id="user-signed-in" class="hidden">
-        <div id="user-info"></div>
-        <button id="sign-out">Sign Out</button><br>
-        <button id="play-rand-alg">Begin Streaming (random algorithm)</button>
-      </div>
+      <button id="play-rand-alg">Begin Streaming (random algorithm)</button>
 
       <script src="{% static 'index.js' %}"></script>
     </body>
