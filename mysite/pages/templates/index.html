@@ -1,32 +1,35 @@
-{% load static %}
-<!DOCTYPE html>
-<html lang="en">
 
-<head>
-  <meta charset="utf-8">
-  <title>Puffer</title>
-  <script src="https://www.gstatic.com/firebasejs/4.12.1/firebase.js"></script>
-  <script src="{% static 'config.js' %}"></script>
-  <link rel="stylesheet" href="{% static 'style.css' %}">
-</head>
+{% if user.is_authenticated %}
+    {% load static %}
+    <!DOCTYPE html>
+    <html lang="en">
 
-<body>
-  {% if user.is_authenticated %}
-   <li>User: {{ user.get_username }}</li>
-   <li><a href="{% url 'logout'%}">Logout</a></li>   
-  {% else %}
-   <li><a href="{% url 'login'%}?next={{request.path}}">Login</a></li>   
-  {% endif %} 
-  <h1>Puffer</h1>
+    <head>
+      <meta charset="utf-8">
+      <title>Puffer</title>
+      <script src="https://www.gstatic.com/firebasejs/4.12.1/firebase.js"></script>
+      <script src="{% static 'config.js' %}"></script>
+      <link rel="stylesheet" href="{% static 'style.css' %}">
+    </head>
 
-  <!--Display when user is signed in--!>
-  <div id="user-signed-in" class="hidden">
-    <div id="user-info"></div>
-    <button id="sign-out">Sign Out</button><br>
-    <button id="play-rand-alg">Begin Streaming (random algorithm)</button>
-  </div>
+    <body>
+      <li>User: {{ user.get_username }}</li>
+      <li><a href="{% url 'logout'%}">Logout</a></li>
+      <h1>Puffer</h1>
 
-  <script src="{% static 'index.js' %}"></script>
-</body>
+      <!--Display when user is signed in--!>
+      <div id="user-signed-in" class="hidden">
+        <div id="user-info"></div>
+        <button id="sign-out">Sign Out</button><br>
+        <button id="play-rand-alg">Begin Streaming (random algorithm)</button>
+      </div>
 
-</html>
+      <script src="{% static 'index.js' %}"></script>
+    </body>
+
+    </html>
+{% else %}
+  <li><a>You must </a>
+  <a href="{% url 'login'%}?next={{request.path}}">Login</a>
+  <a> to use Puffer</a></li>
+{% endif %}

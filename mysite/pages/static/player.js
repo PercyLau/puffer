@@ -19,7 +19,7 @@ function load_script(script_path) {
 
 function start_dashjs(user, aid) {
   const channel_select = document.getElementById('channel-select');
-  var manifest_url = 'media/' + channel_select.value + '/ready/live.mpd';
+  var manifest_url = 'static/media/' + channel_select.value + '/ready/live.mpd';
 
   var player = dashjs.MediaPlayer().create();
   player.initialize(document.getElementById("tv-player"), manifest_url, true);
@@ -27,7 +27,7 @@ function start_dashjs(user, aid) {
 
   channel_select.onchange = function() {
     console.log('set channel:', channel_select.value);
-    player.attachSource('media/' + channel_select.value + '/ready/live.mpd');
+    player.attachSource('static/media/' + channel_select.value + '/ready/live.mpd');
   };
 
   if (aid === 2) {  // default dash.js
@@ -131,9 +131,9 @@ function init_app() {
         var new_script = null;
 
         if (aid === 2 || aid === 3) {  // algorithms available in dash.js
-          new_script = load_script('dist/dash.all.min.js');
+          new_script = load_script('static/dist/dash.all.min.js');
         } else if (aid >= 4 && aid <= 11) {  // algorithms available in pensieve
-          new_script = load_script('dist/pensieve.dash.all.debug.js');
+          new_script = load_script('static/dist/pensieve.dash.all.debug.js');
         }
 
         new_script.onload = function() {
