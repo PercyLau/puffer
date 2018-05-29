@@ -42,5 +42,5 @@
 {% else %}
   <li><a>You must </a>
   <a href="{% url 'login'%}?next={{request.path}}">Login</a>
-  <a> as an admin to view this page.</a></li>
+  <a> to view this page.</a></li>
 {% endif %}
