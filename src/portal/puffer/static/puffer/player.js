@@ -19,7 +19,7 @@ function load_script(script_path) {
 
 function start_dashjs(user, aid) {
   const channel_select = document.getElementById('channel-select');
-  var manifest_url = '/media/' + channel_select.value + '/ready/live.mpd';
+  var manifest_url = 'static/media/' + channel_select.value + '/ready/live.mpd';
 
   var player = dashjs.MediaPlayer().create();
   player.initialize(document.getElementById("tv-player"), manifest_url, true);
@@ -27,7 +27,7 @@ function start_dashjs(user, aid) {
 
   channel_select.onchange = function() {
     console.log('set channel:', channel_select.value);
-    player.attachSource('/media/' + channel_select.value + '/ready/live.mpd');
+    player.attachSource('static/media/' + channel_select.value + '/ready/live.mpd');
   };
 
   if (aid === 2) {  // default dash.js
@@ -75,13 +75,13 @@ function setup_control_bar() {
       video.volume = last_volume_before_mute;
       volume_bar.value = video.volume;
       mute_button.muted = false;
-      mute_button.style.backgroundImage = "url(/images/volume_on.svg)";
+      mute_button.style.backgroundImage = "url(images/volume_on.svg)";
     } else {
       mute_button.muted = true;
       last_volume_before_mute = video.volume;
       video.volume = 0;
       volume_bar.value = 0;
-      mute_button.style.backgroundImage = "url(/images/volume_off.svg)";
+      mute_button.style.backgroundImage = "url(images/volume_off.svg)";
     }
   };
 
@@ -89,10 +89,10 @@ function setup_control_bar() {
   volume_bar.onchange = function() {
     video.volume = volume_bar.value;
     if (video.volume > 0) {
-      mute_button.style.backgroundImage = "url(/images/volume_on.svg)";
+      mute_button.style.backgroundImage = "url(images/volume_on.svg)";
       mute_button.muted = false;
     } else {
-      mute_button.style.backgroundImage = "url(/images/volume_off.svg)";
+      mute_button.style.backgroundImage = "url(images/volume_off.svg)";
       mute_button.muted = true;
     }
   };
@@ -109,10 +109,7 @@ function setup_control_bar() {
 }
 
 function init_app() {
-  /* Listening for auth state changes */
-  firebase.auth().onAuthStateChanged(function(user) {
-    if (user) {
-      /* User is signed in */
+    if (true) {
       document.getElementById('user-signed-in').style.display = 'block';
       document.getElementById('user-info').textContent = 'Welcome! ' + user.displayName;
 
@@ -131,26 +128,18 @@ function init_app() {
         var new_script = null;
 
         if (aid === 2 || aid === 3) {  // algorithms available in dash.js
-          new_script = load_script('dist/dash.all.min.js');
+          new_script = load_script('static/dist/dash.all.min.js');
         } else if (aid >= 4 && aid <= 11) {  // algorithms available in pensieve
-          new_script = load_script('dist/pensieve.dash.all.min.js');
+          new_script = load_script('static/dist/pensieve.dash.all.debug.js');
         }
 
         new_script.onload = function() {
           start_dashjs(user, aid);
         }
       }
-    } else {
-      /* Redirect to the sign-in page if user is not signed in */
-      window.location.replace('/widget.html');
     }
   });
 
-  document.getElementById('sign-out').addEventListener('click',
-    function() {
-      firebase.auth().signOut();
-    }
-  );
 }
 
 window.addEventListener('load', init_app);
