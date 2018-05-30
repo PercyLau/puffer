@@ -262,7 +262,7 @@ function AVSource(video, audio, options) {
   };
 }
 
-function WebSocketClient(user, video, audio) {
+function WebSocketClient(video, audio) {
   var ws = null;
   var av_source = null;
 
@@ -275,7 +275,6 @@ function WebSocketClient(user, video, audio) {
     if (ws && ws.readyState === WS_OPEN) {
       try {
         var msg = {
-          userId: user.uid,
           playerWidth: video.videoWidth,
           playerHeight: video.videoHeight
         };
@@ -428,7 +427,7 @@ function WebSocketClient(user, video, audio) {
   update_helper();
 }
 
-function start_puffer(user) {
+function start_puffer() {
   const video = document.getElementById('tv-player');
   const audio = document.getElementById('tv-audio');
   const channel_select = document.getElementById('channel-select');
@@ -438,6 +437,6 @@ function start_puffer(user) {
     client.set_channel(channel_select.value);
   };
 
-  const client = new WebSocketClient(user, video, audio);
+  const client = new WebSocketClient(video, audio);
   client.connect(channel_select.value);
 }
