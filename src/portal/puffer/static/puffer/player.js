@@ -110,9 +110,6 @@ function setup_control_bar() {
 
 function init_app() {
     if (true) {
-      document.getElementById('user-signed-in').style.display = 'block';
-      document.getElementById('user-info').textContent = 'Welcome! ' + user.displayName;
-
       /* Set up the player control bar */
       setup_control_bar();
 
@@ -128,9 +125,9 @@ function init_app() {
         var new_script = null;
 
         if (aid === 2 || aid === 3) {  // algorithms available in dash.js
-          new_script = load_script('static/dist/dash.all.min.js');
+          new_script = load_script('static/puffer/dist/dash.all.min.js');
         } else if (aid >= 4 && aid <= 11) {  // algorithms available in pensieve
-          new_script = load_script('static/dist/pensieve.dash.all.debug.js');
+          new_script = load_script('static/puffer/dist/pensieve.dash.all.debug.js');
         }
 
         new_script.onload = function() {
@@ -138,7 +135,6 @@ function init_app() {
         }
       }
     }
-  });
 
 }
 
