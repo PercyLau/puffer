@@ -427,7 +427,7 @@ function WebSocketClient(video, audio) {
   update_helper();
 }
 
-function start_puffer() {
+function start_puffer(session_key) {
   const video = document.getElementById('tv-player');
   const audio = document.getElementById('tv-audio');
   const channel_select = document.getElementById('channel-select');
