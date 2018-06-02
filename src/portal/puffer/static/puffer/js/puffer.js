@@ -262,7 +262,7 @@ function AVSource(video, audio, options) {
   };
 }
 
-function WebSocketClient(video, audio) {
+function WebSocketClient(video, audio, session_key) {
   var ws = null;
   var av_source = null;
 
@@ -275,12 +275,11 @@ function WebSocketClient(video, audio) {
     if (ws && ws.readyState === WS_OPEN) {
       try {
         var msg = {
+          sessionKey: session_key,
           playerWidth: video.videoWidth,
-          playerHeight: video.videoHeight
+          playerHeight: video.videoHeight,
+          channel: channel
         };
-        if (channel) {
-          msg.channel = channel;
-        }
         if (av_source && av_source.getChannel() === channel) {
           msg.nextAudioTimestamp = av_source.getNextAudioTimestamp();
           msg.nextVideoTimestamp = av_source.getNextVideoTimestamp();
@@ -432,11 +431,12 @@ function start_puffer(session_key) {
   const audio = document.getElementById('tv-audio');
   const channel_select = document.getElementById('channel-select');
 
+  const client = new WebSocketClient(video, audio, session_key);
+
   channel_select.onchange = function() {
     console.log('set channel:', channel_select.value);
     client.set_channel(channel_select.value);
   };
 
-  const client = new WebSocketClient(video, audio);
   client.connect(channel_select.value);
 }
