@@ -166,6 +166,22 @@ function AVSource(video, audio, options) {
 
     /* Last fragment received */
     if (data.byteLength + metadata.byteOffset === metadata.totalByteLength) {
+      //Begin audio / video offset debug
+      if(vbuf && abuf) {
+        if(vbuf.buffered.length === 1 && abuf.buffered.length === 1) {
+          console.log("Vbuf range: " + vbuf.buffered.start(0) + " to "
+		      + vbuf.buffered.end(0));
+          console.log("Abuf range: " + abuf.buffered.start(0) + " to "
+		      + abuf.buffered.end(0));
+          console.log("A/V start difference: " + (abuf.buffered.start(0)
+		      - vbuf.buffered.start(0)) + ", A/V end difference: "
+		      + (abuf.buffered.end(0) - vbuf.buffered.end(0)));
+        } else if(vbuf.buffered.length > 1 || abuf.buffered.length > 1){
+          console.log("Error: Non contiguous time range in audio or\
+		      video buffer!");
+        }
+      }
+      //End audio / video offset debug
       if (debug) {
         console.log('video: done receiving', metadata.timestamp);
       }
@@ -285,10 +301,28 @@ function AVSource(video, audio, options) {
   };
 
   /* Pushes data onto the SourceBuffers if they are ready */
+  /* Also updates debug info in HTML and prunes played buffer */
   this.vbuf_update = function() {
     if (vbuf && !vbuf.updating && pending_video_chunks.length > 0) {
       var next_video = pending_video_chunks.shift();
       vbuf.appendBuffer(next_video.data);
+      document.getElementById("vidPBuf").innerHTML = this.getVideoBufferLen();
+      document.getElementById("audPBuf").innerHTML = this.getAudioBufferLen();
+    }
+    /* when there are pending chunks, prune played video */
+    var vbuf_length = 0;
+    if (vbuf && vbuf.buffered.length === 1) {
+      vbuf_length = vbuf.buffered.end(0) - vbuf.buffered.start(0);
+      document.getElementById("vbufLen").innerHTML = vbuf_length;
+    }
+    if (vbuf_length > 0 && video.played.length === 1) {
+      //TODO: Fix magic numbers
+      if (!vbuf.updating && vbuf_length > 30) {
+        console.log("played start: " + video.played.start(0) + ", played end: "
+		    + video.played.end(0));
+	// TODO: Discuss the below line with Francis
+        //vbuf.remove(vbuf.buffered.start(0), vbuf.buffered.end(0) - 15);
+      }
     }
   }
 
@@ -297,7 +331,21 @@ function AVSource(video, audio, options) {
       var next_audio = pending_audio_chunks.shift();
       abuf.appendBuffer(next_audio.data);
     }
-  };
+    /* when there are pending chunks, prune played audio */
+    var abuf_length = 0;
+    if (abuf && abuf.buffered.length === 1) {
+      abuf_length = abuf.buffered.end(0) - abuf.buffered.start(0);
+      document.getElementById("abufLen").innerHTML = abuf_length;
+    }
+    if (abuf_length > 0 && video.played.length === 1) {
+      // TODO: Fix magic numbers
+      if (!abuf.updating && abuf_length > 30) {
+        console.log("pruning played audio");
+	// TODO: Discuss the below line with Francis
+        //abuf.remove(abuf.buffered.start(0), abuf.buffered.end(0) - 15);
+      }
+    }
+  }
 }
 
 function WebSocketClient(video, audio, session_key) {

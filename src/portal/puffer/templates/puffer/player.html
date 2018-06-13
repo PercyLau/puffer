@@ -23,11 +23,22 @@
       <button type="button" id="mute-button"></button>
       <input type="range" id="volume-bar" min="0" max="1" step="0.05" value="1">
       <select id="channel-select">
+        <option value="fox">fox</option>
         <option value="nbc">nbc</option>
         <option value="tos">tos</option>
       </select>
       <button type="button" id="full-screen-button"></button>
     </div>
+  </div>
+
+  <br>
+  <button type="button" id="debug-button">Show Debug Info</button>
+  <div id="debug-info" hidden=true>
+    <h3>Video Playback Buffer: <span id="vidPBuf"></span> seconds</h3>
+    <h3>Audio Playback Buffer: <span id="audPBuf"></span> seconds</h3>
+    <h3>Vbuf Length: <span id="vbufLen"></span> seconds</h3>
+    <h3>Abuf Length: <span id="abufLen"></span> seconds</h3>
+    <h3>Audio played range: <span id="audiorange"></span> seconds</h3>
   </div>
 
   <script src="{% static 'puffer/js/player.js' %}"></script>
