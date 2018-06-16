@@ -53,6 +53,9 @@ function AVSource(video, audio, options) {
   var pending_video_chunks = [];
   var pending_audio_chunks = [];
 
+  /* For tracking elapsed real time */
+  var initClientTime;
+
   var ms = new MediaSource();
 
   video.src = URL.createObjectURL(ms);
@@ -69,6 +72,7 @@ function AVSource(video, audio, options) {
     video.currentTime = init_seek_ts / timescale;
 
     vbuf = ms.addSourceBuffer(video_codec);
+//    vbuf.mode = "sequence";
     vbuf.addEventListener('updateend', that.vbuf_update);
     vbuf.addEventListener('error', function(e) {
       console.log('vbuf error:', e);
@@ -99,6 +103,7 @@ function AVSource(video, audio, options) {
       that.abuf_update();
     }
 
+    initClientTime = Date.now();
     /*
     var video_play_promise = video.play();
     if (video_play_promise) {
@@ -162,7 +167,11 @@ function AVSource(video, audio, options) {
       partial_video_quality = metadata.quality;
       partial_video_chunks = [];
     }
+    document.getElementById("resolution").innerHTML = metadata.quality;
     partial_video_chunks.push(data);
+    var timeToPlay = metadata.timestamp / timescale - video.currentTime;
+
+    console.log("Chunk just rcvd will be played in " + timeToPlay + " seconds");
 
     /* Last fragment received */
     if (data.byteLength + metadata.byteOffset === metadata.totalByteLength) {
@@ -303,9 +312,14 @@ function AVSource(video, audio, options) {
   /* Pushes data onto the SourceBuffers if they are ready */
   /* Also updates debug info in HTML and prunes played buffer */
   this.vbuf_update = function() {
+    var timePassed = (Date.now() - initClientTime) / 1000;
+    var vidPlayed = video.currentTime - init_seek_ts / timescale;
+    document.getElementById("vidTimePlayed").innerHTML = vidPlayed;
+    document.getElementById("realTimePassed").innerHTML = timePassed;
     if (vbuf && !vbuf.updating && pending_video_chunks.length > 0) {
       var next_video = pending_video_chunks.shift();
       vbuf.appendBuffer(next_video.data);
+      console.log("timestampOffset: " + abuf.timestampOffset);
       document.getElementById("vidPBuf").innerHTML = this.getVideoBufferLen();
       document.getElementById("audPBuf").innerHTML = this.getAudioBufferLen();
     }
@@ -351,7 +365,8 @@ function AVSource(video, audio, options) {
 function WebSocketClient(video, audio, session_key) {
   var ws = null;
   var av_source = null;
-
+  var rebufCount = 0;
+  document.getElementById("rebufCount").innerHTML = rebufCount;
   /* Exponential backoff to reconnect */
   var rc_backoff = BASE_RECONNECT_BACKOFF;
 
@@ -500,6 +515,8 @@ function WebSocketClient(video, audio, session_key) {
 
   video.onwaiting = function() {
     console.log('video is rebuffering');
+    rebufCount ++;
+    document.getElementById('rebufCount').innerHTML = rebufCount;
     send_client_info('rebuffer');
   };
 
