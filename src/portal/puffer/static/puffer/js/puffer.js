@@ -56,6 +56,10 @@ function AVSource(video, audio, options) {
   /* For tracking elapsed real time */
   var initClientTime;
 
+  /* For tracking if any audio or video chunks are skipped */
+  var nextExpectedAudioTs = next_audio_timestamp;
+  var nextExpectedVideoTs = next_video_timestamp;
+
   var ms = new MediaSource();
 
   video.src = URL.createObjectURL(ms);
@@ -167,6 +171,9 @@ function AVSource(video, audio, options) {
       partial_video_quality = metadata.quality;
       partial_video_chunks = [];
     }
+    if (metadata.duration != 180180) {
+        throw "Video duration is wrong";
+    }
     document.getElementById("resolution").innerHTML = metadata.quality;
     partial_video_chunks.push(data);
     var timeToPlay = metadata.timestamp / timescale - video.currentTime;
@@ -221,7 +228,9 @@ function AVSource(video, audio, options) {
       partial_audio_chunks = [];
     }
     partial_audio_chunks.push(data);
-
+    if (metadata.duration != 432000) {
+        throw "Audio duration is wrong";
+    }
     /* Last fragment received */
     if (data.byteLength + metadata.byteOffset === metadata.totalByteLength) {
       if (debug) {
@@ -318,7 +327,12 @@ function AVSource(video, audio, options) {
     document.getElementById("realTimePassed").innerHTML = timePassed;
     if (vbuf && !vbuf.updating && pending_video_chunks.length > 0) {
       var next_video = pending_video_chunks.shift();
+      if (next_video.ts != nextExpectedVideoTs) {
+        console.log("VIDEO CHUNK MISSING!");
+        throw "Video chunk skipped or shortened"
+      }
       vbuf.appendBuffer(next_video.data);
+      nextExpectedVideoTs += 180180; //Fox specific (temp)
       console.log("timestampOffset: " + abuf.timestampOffset);
       document.getElementById("vidPBuf").innerHTML = this.getVideoBufferLen();
       document.getElementById("audPBuf").innerHTML = this.getAudioBufferLen();
@@ -343,6 +357,11 @@ function AVSource(video, audio, options) {
   this.abuf_update = function() {
     if (abuf && !abuf.updating && pending_audio_chunks.length > 0) {
       var next_audio = pending_audio_chunks.shift();
+      if (next_audio.ts != nextExpectedAudioTs) {
+        console.log("AUDIO CHUNK MISSING!");
+        throw "Audio chunk skipped or shortened"
+      }
+      nextExpectedAudioTs += 432000; //Fox specific (temp)
       abuf.appendBuffer(next_audio.data);
     }
     /* when there are pending chunks, prune played audio */
