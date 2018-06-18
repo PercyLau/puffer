@@ -32,7 +32,7 @@ function concat_arraybuffers(arr, len) {
   return tmp.buffer;
 }
 
-function AVSource(video, audio, options) {
+function AVSource(video, options) {
   /* SourceBuffers for audio and video */
   var vbuf = null, abuf = null;
 
@@ -63,10 +63,10 @@ function AVSource(video, audio, options) {
   var ms = new MediaSource();
 
   video.src = URL.createObjectURL(ms);
-  audio.src = URL.createObjectURL(ms);
+// HUDSON  audio.src = URL.createObjectURL(ms);
 
   video.load();
-  audio.load();
+//  audio.load();
 
   var that = this;
 
@@ -288,6 +288,9 @@ function AVSource(video, audio, options) {
   /* Get the number of seconds of video buffered */
   this.getVideoBufferLen = function() {
     if (vbuf && vbuf.buffered.length > 0) {
+      if (vbuf.buffered.length != 1) {
+        throw "vbuf is non contiguous";
+      }
       return vbuf.buffered.end(0) - video.currentTime;
     } else {
       return -1;
@@ -381,7 +384,7 @@ function AVSource(video, audio, options) {
   }
 }
 
-function WebSocketClient(video, audio, session_key) {
+function WebSocketClient(video, session_key) {
   var ws = null;
   var av_source = null;
   var rebufCount = 0;
@@ -454,7 +457,7 @@ function WebSocketClient(video, audio, session_key) {
         if (av_source) {
           av_source.close();
         }
-        av_source = new AVSource(video, audio, message.metadata);
+        av_source = new AVSource(video, message.metadata);
       }
     } else if (message.metadata.type === 'server-audio') {
       if (debug) {
@@ -549,10 +552,10 @@ function WebSocketClient(video, audio, session_key) {
 
 function start_puffer(session_key) {
   const video = document.getElementById('tv-player');
-  const audio = document.getElementById('tv-audio');
+//  const audio = document.getElementById('tv-audio');
   const channel_select = document.getElementById('channel-select');
 
-  const client = new WebSocketClient(video, audio, session_key);
+  const client = new WebSocketClient(video, session_key);
 
   channel_select.onchange = function() {
     console.log('set channel:', channel_select.value);

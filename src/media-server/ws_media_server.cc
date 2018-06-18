@@ -53,13 +53,14 @@ const VideoFormat & select_video_quality(WebSocketClient & client)
   Channel & channel = channels.at(client.channel().value());
 
   /* simple buffer-based algorithm: assume max buffer is 10 seconds */
+  /*
   double buf = min(max(client.video_playback_buf(), 0.0), 10.0);
 
   uint64_t next_vts = client.next_vts().value();
   const auto & data_map = channel.vdata(next_vts);
   const auto & ssim_map = channel.vssim(next_vts);
 
-  /* get max and min chunk size for the next video ts */
+  // get max and min chunk size for the next video ts
   size_t max_size = 0, min_size = SIZE_MAX;
 
   size_t MAX_VFORMATS = channel.vformats().size();
@@ -89,7 +90,7 @@ const VideoFormat & select_video_quality(WebSocketClient & client)
     return channel.vformats()[min_idx];
   }
 
-  /* pick the chunk with highest SSIM but with size <= max_serve_size */
+  // pick the chunk with highest SSIM but with size <= max_serve_size
   double max_serve_size = ceil(buf * (max_size - min_size) / 10.0 + min_size);
   double highest_ssim = 0.0;
   size_t ret_idx = MAX_VFORMATS;
@@ -110,21 +111,22 @@ const VideoFormat & select_video_quality(WebSocketClient & client)
   }
 
   assert(ret_idx < MAX_VFORMATS);
-  return channel.vformats()[ret_idx];
+  return channel.vformats()[ret_idx]; */
+  return channel.vformats()[0]; //always return lowest quality
 }
 
 const AudioFormat & select_audio_quality(WebSocketClient & client)
 {
   // TODO: make a better choice
   Channel & channel = channels.at(client.channel().value());
-
-  /* simple buffer-based algorithm: assume max buffer is 10 seconds */
+  /*
+  // simple buffer-based algorithm: assume max buffer is 10 seconds
   double buf = min(max(client.audio_playback_buf(), 0.0), 10.0);
 
   uint64_t next_ats = client.next_ats().value();
   const auto & data_map = channel.adata(next_ats);
 
-  /* get max and min chunk size for the next video ts */
+  // get max and min chunk size for the next video ts
   size_t max_size = 0, min_size = SIZE_MAX;
 
   size_t MAX_AFORMATS = channel.aformats().size();
@@ -154,7 +156,7 @@ const AudioFormat & select_audio_quality(WebSocketClient & client)
     return channel.aformats()[min_idx];
   }
 
-  /* pick the chunk with biggest size <= max_serve_size */
+  // pick the chunk with biggest size <= max_serve_size
   double max_serve_size = ceil(buf * (max_size - min_size) / 10.0 + min_size);
   size_t biggest_chunk_size = 0;
   size_t ret_idx = MAX_AFORMATS;
@@ -174,7 +176,8 @@ const AudioFormat & select_audio_quality(WebSocketClient & client)
   }
 
   assert(ret_idx < MAX_AFORMATS);
-  return channel.aformats()[ret_idx];
+  return channel.aformats()[ret_idx]; */
+  return channel.aformats()[0];
 }
 
 void serve_video_to_client(WebSocketServer & server, WebSocketClient & client)
@@ -337,14 +340,17 @@ void serve_client(WebSocketServer & server, WebSocketClient & client)
   if (server.buffer_bytes(client.connection_id()) >= max_ws_queue_len) {
     return;
   }
-
+  // Below is for testing purposes - always send most recent chunk ASAP
+  /*
   const bool can_send_video =
       client.video_playback_buf() < max_buffer_seconds and
       video_in_flight(channel, client) < max_inflight_seconds;
   const bool can_send_audio =
       client.audio_playback_buf() < max_buffer_seconds and
       audio_in_flight(channel, client) < max_inflight_seconds;
-
+  */
+  const bool can_send_video = true;
+  const bool can_send_audio = true;
   if (client.next_vts().value() > client.next_ats().value()) {
     /* prioritize audio */
     if (can_send_audio) {
